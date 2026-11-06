@@ -13,6 +13,7 @@ int main()
 	struct nine_tree *t = nine_tree_new();
 	struct nine_handle h;
 	char buf[4];
+	int err;
 
 	if (!t || !nine_tree_ns(t))
 		return 1;
@@ -23,6 +24,8 @@ int main()
 	if (nine_handle_node(&h)->w[0] != 0)
 		return 1;
 	if (nine_read(&h, buf, sizeof(buf), 0) >= 0)
+		return 1;
+	if (nine_read_many(&h, 1, buf, sizeof(buf), &err) >= 0)
 		return 1;
 
 	nine_tree_free(t);
