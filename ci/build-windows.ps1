@@ -38,22 +38,28 @@ function Invoke-Native {
 	$ErrorActionPreference = 'Continue'
 	& $program @arguments
 	if ($LASTEXITCODE -ne 0) {
-		throw "build-windows: '$($args -join ' ')' failed with exit code $LASTEXITCODE"
+		throw ("build-windows: '$($args -join ' ')' failed with exit " +
+			"code $LASTEXITCODE")
 	}
 }
 
-$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$vswhere = Join-Path ${env:ProgramFiles(x86)} `
+	'Microsoft Visual Studio\Installer\vswhere.exe'
 $vs = & $vswhere -latest -products * -version '[17.0,18.0)' `
 	-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
 	-property installationPath
 if (-not $vs) {
-	throw 'build-windows: vswhere found no Visual Studio 2022 with the C++ tools'
+	throw ('build-windows: vswhere found no Visual Studio 2022 with the ' +
+		'C++ tools')
 }
 
-Import-Module (Join-Path $vs 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
-Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -Arch amd64 -HostArch amd64
+Import-Module (Join-Path $vs `
+	'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation `
+	-Arch amd64 -HostArch amd64
 if ($env:VCToolsVersion -notlike "$Msvc.*") {
-	throw "build-windows: the developer shell of $vs has MSVC $env:VCToolsVersion, not $Msvc"
+	throw ("build-windows: the developer shell of $vs has MSVC " +
+		"$env:VCToolsVersion, not $Msvc")
 }
 Write-Host "build-windows: MSVC $env:VCToolsVersion, from $vs"
 
@@ -67,11 +73,14 @@ Invoke-Native ninja --version
 
 foreach ($preset in $Presets) {
 	if ($preset -eq 'msvc-asan') {
-		$runtime = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll'
+		$runtime = Join-Path $env:VCToolsInstallDir `
+			'bin\Hostx64\x64\clang_rt.asan_dynamic-x86_64.dll'
 		if (-not (Test-Path -LiteralPath $runtime -PathType Leaf)) {
-			throw ("build-windows: MSVC $env:VCToolsVersion has no AddressSanitizer " +
-				"runtime at $runtime, so msvc-asan can't run. Install the C++ " +
-				"AddressSanitizer component of Visual Studio, or leave out msvc-asan.")
+			throw ("build-windows: MSVC $env:VCToolsVersion " +
+				"has no AddressSanitizer runtime at " +
+				"$runtime, so msvc-asan can't run. Install " +
+				"the C++ AddressSanitizer component of " +
+				"Visual Studio, or leave out msvc-asan.")
 		}
 	}
 	Invoke-Native cmake --workflow --preset $preset

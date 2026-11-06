@@ -33,7 +33,6 @@ jobs:
       tools:
         description: The arguments for ci/install-linux-tools.sh.
         type: string
-        default: ""
       presets:
         type: string
     docker:
@@ -62,7 +61,7 @@ jobs:
       - run:
           name: Run msvc-debug, msvc-release and msvc-asan
           command: >-
-            ci/build-windows.ps1 -Msvc 14.44 -CMake 4.4.4 -Ninja 1.13.2
+            ci/build-windows.ps1 -Msvc '14.44' -CMake '4.4.4' -Ninja '1.13.2'
             -Presets msvc-debug, msvc-release, msvc-asan
       - run:
           name: Gather the logs

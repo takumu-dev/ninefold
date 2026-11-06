@@ -20,7 +20,8 @@
 #
 # Each directory added to the PATH also goes into BASH_ENV, which CircleCI
 # reads at the start of each later step.
-set -eu
+# The package lists are split on spaces, but never globbed.
+set -euf
 
 here=$(dirname "$0")
 llvm=
@@ -52,7 +53,7 @@ done
 export DEBIAN_FRONTEND=noninteractive
 . /etc/os-release
 
-install() {
+apt_install() {
 	apt-get install --yes --no-install-recommends "$@"
 }
 
@@ -72,7 +73,7 @@ if [ -n "$requirements" ]; then
 fi
 
 apt-get update
-install $base
+apt_install $base
 
 if [ -n "$llvm" ]; then
 	mkdir -p /etc/apt/keyrings
@@ -97,13 +98,14 @@ EOF
 fi
 
 if [ $# -gt 0 ]; then
-	install "$@"
+	apt_install "$@"
 fi
 
 if [ -n "$cmake_version" ]; then
 	archive=cmake-$cmake_version-linux-x86_64.tar.gz
+	releases=https://github.com/Kitware/CMake/releases/download
 	curl --fail --silent --show-error --location --output "/tmp/$archive" \
-		"https://github.com/Kitware/CMake/releases/download/v$cmake_version/$archive"
+		"$releases/v$cmake_version/$archive"
 	echo "$cmake_sha256  /tmp/$archive" | sha256sum --check --strict
 	mkdir -p /opt/cmake
 	tar --extract --gzip --file "/tmp/$archive" --directory /opt/cmake \
