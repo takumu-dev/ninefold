@@ -68,7 +68,7 @@ static void check_pos(const struct demo *d, uint32_t id, const float want[3])
 /* A write through a value file of one instance leaves the other alone. */
 static void test_value_write(void)
 {
-	static const float zero[3], pos[3] = { 1.0f, 2.0f, 3.0f };
+	static const float zero[3] = { 0 }, pos[3] = { 1.0f, 2.0f, 3.0f };
 	struct worlds w;
 	struct nine_handle h;
 	float got[3];
@@ -90,7 +90,7 @@ static void test_value_write(void)
 /* A bulk write to one instance leaves the other alone. */
 static void test_bulk_write(void)
 {
-	static const float zero[3];
+	static const float zero[3] = { 0 };
 	static const float pos[2][3] = { { 4.0f, 5.0f, 6.0f },
 					 { 7.0f, 8.0f, 9.0f } };
 	struct worlds w;
