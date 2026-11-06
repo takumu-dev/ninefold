@@ -115,9 +115,12 @@ int nine_open(struct nine_ns *ns, const char *path, int mode,
 	if (!mode_valid(mode) || !nine_path_valid(path))
 		return -EINVAL;
 
+	/* A path that reaches no mount stays in the framework's directories. */
 	m = find_mount(ns->tree, path, &rest);
-	if (!m)
-		return -ENOENT;
+	if (!m) {
+		m = &ns->tree->dirs;
+		rest = path;
+	}
 
 	err = walk(m, rest, &node);
 	if (err)

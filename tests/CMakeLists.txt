@@ -1,6 +1,7 @@
 find_package(Threads REQUIRED)
 
-add_library(ninefold_test_support STATIC support/recorder.c support/thread.c)
+add_library(ninefold_test_support STATIC support/listing.c support/recorder.c
+	support/thread.c)
 target_include_directories(ninefold_test_support PUBLIC support)
 target_link_libraries(ninefold_test_support
 	PUBLIC ninefold::ninefold Threads::Threads)
@@ -23,6 +24,10 @@ ninefold_add_test(value_file)
 ninefold_add_test(write)
 ninefold_add_test(bulk)
 ninefold_add_test(structural)
+ninefold_add_test(stat)
+ninefold_add_test(list)
+ninefold_add_test(dirs)
+ninefold_add_test(instances)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)

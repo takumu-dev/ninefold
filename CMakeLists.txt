@@ -43,6 +43,7 @@ else()
 endif()
 
 add_library(ninefold STATIC
+	src/dirs.c
 	src/handle.c
 	src/path.c
 	src/tree.c)
@@ -53,12 +54,16 @@ target_sources(ninefold
 		BASE_DIRS include
 		FILES include/ninefold.h)
 
+# Before the demo directory, which holds the demo program's smoke test.
+if(NINEFOLD_BUILD_TESTS)
+	enable_testing()
+endif()
+
 if(NINEFOLD_BUILD_TESTS OR NINEFOLD_BUILD_DEMO OR NINEFOLD_BUILD_BENCH)
 	add_subdirectory(demo)
 endif()
 
 if(NINEFOLD_BUILD_TESTS)
-	enable_testing()
 	add_subdirectory(tests)
 endif()
 

@@ -14,6 +14,8 @@
  *
  *	entities/<id>/components/transform/pos
  *
+ * entities/ lists the IDs of the live entities in decimal, smallest first.
+ *
  * Both views reach the same memory. A bulk write follows the order of ids
  * at the time of the write.
  *

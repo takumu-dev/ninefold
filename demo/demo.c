@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
+#include <inttypes.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -287,27 +289,81 @@ static int demo_lookup(void *priv, const struct nine_node *dir,
 	return -ENOENT;
 }
 
-/* Listing and stat are not served yet, past the check for a stale node. */
+/*
+ * Put @name and its NUL in @buf of @len bytes, after the *@used bytes there.
+ * Return: true, or false when it does not fit.
+ */
+static bool put_name(char *buf, size_t len, size_t *used, const char *name)
+{
+	size_t size = strlen(name) + 1;
+
+	if (size > len - *used)
+		return false;
+
+	memcpy(buf + *used, name, size);
+	*used += size;
+	return true;
+}
+
+/* The cursor of a directory with fixed names is its next index in the table. */
+static int list_fixed(enum node_kind dir, uint64_t *cursor, char *buf,
+		      size_t len)
+{
+	size_t used = 0;
+	uint64_t i;
+	int n = 0;
+
+	for (i = *cursor; i < ARRAY_SIZE(fixed_names); i++) {
+		if (fixed_names[i].dir != dir)
+			continue;
+		if (!put_name(buf, len, &used, fixed_names[i].name))
+			break;
+		n++;
+	}
+	if (!n && i < ARRAY_SIZE(fixed_names))
+		return -ERANGE;
+
+	*cursor = i;
+	return n;
+}
+
+/* The cursor of entities/ is the next ID to list, so the IDs come in order. */
+static int list_entities(const struct demo *d, uint64_t *cursor, char *buf,
+			 size_t len)
+{
+	char name[sizeof("4294967295")];
+	size_t used = 0;
+	uint64_t id;
+	int n = 0;
+
+	for (id = *cursor; id < d->nids; id++) {
+		if (!is_live(d, (uint32_t)id))
+			continue;
+		snprintf(name, sizeof(name), "%" PRIu64, id);
+		if (!put_name(buf, len, &used, name))
+			break;
+		n++;
+	}
+	if (!n && id < d->nids)
+		return -ERANGE;
+
+	*cursor = id;
+	return n;
+}
+
 static int demo_list(void *priv, const struct nine_node *dir, uint64_t *cursor,
 		     char *buf, size_t len)
 {
+	enum node_kind kind = node_kind(dir);
+
 	if (is_stale(priv, dir))
 		return -ESTALE;
+	if (!is_dir(kind))
+		return -ENOTDIR;
+	if (kind == NODE_ENTITIES)
+		return list_entities(priv, cursor, buf, len);
 
-	(void)cursor;
-	(void)buf;
-	(void)len;
-	return -EOPNOTSUPP;
-}
-
-static int demo_stat(void *priv, const struct nine_node *node,
-		     struct nine_stat *st)
-{
-	if (is_stale(priv, node))
-		return -ESTALE;
-
-	(void)st;
-	return -EOPNOTSUPP;
+	return list_fixed(kind, cursor, buf, len);
 }
 
 /*
@@ -394,6 +450,24 @@ static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 		return -EISDIR;
 
 	return write_range(data, size, buf, len, off);
+}
+
+static int demo_stat(void *priv, const struct nine_node *node,
+		     struct nine_stat *st)
+{
+	void *data;
+	size_t size;
+
+	if (is_stale(priv, node))
+		return -ESTALE;
+
+	if (file_data(priv, node, &data, &size)) {
+		st->kind = NINE_FILE;
+		st->size = size;
+	} else {
+		st->kind = NINE_DIR;
+	}
+	return 0;
 }
 
 static const struct nine_file_server_ops ops = {
