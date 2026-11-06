@@ -1,0 +1,474 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "compiled",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "unix",
+      "hidden": true,
+      "inherits": "compiled",
+      "condition": {
+        "type": "notEquals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "inherits": "compiled",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      }
+    },
+    {
+      "name": "gcc",
+      "hidden": true,
+      "inherits": "unix",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    {
+      "name": "clang",
+      "hidden": true,
+      "inherits": "unix",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "msvc",
+      "hidden": true,
+      "inherits": "windows",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "OFF"
+      }
+    },
+    {
+      "name": "gcc-debug",
+      "displayName": "GCC, Debug",
+      "inherits": [
+        "gcc",
+        "debug"
+      ]
+    },
+    {
+      "name": "gcc-release",
+      "displayName": "GCC, Release",
+      "inherits": [
+        "gcc",
+        "release"
+      ]
+    },
+    {
+      "name": "clang-debug",
+      "displayName": "Clang, Debug",
+      "inherits": [
+        "clang",
+        "debug"
+      ]
+    },
+    {
+      "name": "clang-release",
+      "displayName": "Clang, Release",
+      "inherits": [
+        "clang",
+        "release"
+      ]
+    },
+    {
+      "name": "msvc-debug",
+      "displayName": "MSVC, Debug",
+      "inherits": [
+        "msvc",
+        "debug"
+      ]
+    },
+    {
+      "name": "msvc-release",
+      "displayName": "MSVC, Release",
+      "inherits": [
+        "msvc",
+        "release"
+      ]
+    },
+    {
+      "name": "asan",
+      "displayName": "Clang, Debug, with AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": [
+        "clang",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_FLAGS_INIT": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS_INIT": "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS_INIT": "-fsanitize=address,undefined"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Clang, Debug, with ThreadSanitizer",
+      "inherits": [
+        "clang",
+        "debug"
+      ],
+      "cacheVariables": {
+        "CMAKE_C_FLAGS_INIT": "-fsanitize=thread",
+        "CMAKE_CXX_FLAGS_INIT": "-fsanitize=thread",
+        "CMAKE_EXE_LINKER_FLAGS_INIT": "-fsanitize=thread"
+      }
+    },
+    {
+      "name": "msvc-asan",
+      "displayName": "MSVC, RelWithDebInfo, with AddressSanitizer",
+      "inherits": [
+        "msvc"
+      ],
+      "description": "RelWithDebInfo, unlike Debug, builds without /RTC, which AddressSanitizer does not support. Incremental linking is off, as AddressSanitizer ignores it.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_FLAGS_INIT": "/fsanitize=address",
+        "CMAKE_CXX_FLAGS_INIT": "/fsanitize=address",
+        "CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO": "/debug /INCREMENTAL:NO"
+      }
+    },
+    {
+      "name": "lint",
+      "displayName": "Formatting check and checkpatch, with no compiler",
+      "inherits": [
+        "base"
+      ],
+      "cacheVariables": {
+        "NINEFOLD_LINT_ONLY": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "gcc-debug",
+      "configurePreset": "gcc-debug"
+    },
+    {
+      "name": "gcc-release",
+      "configurePreset": "gcc-release"
+    },
+    {
+      "name": "clang-debug",
+      "configurePreset": "clang-debug"
+    },
+    {
+      "name": "clang-release",
+      "configurePreset": "clang-release"
+    },
+    {
+      "name": "msvc-debug",
+      "configurePreset": "msvc-debug"
+    },
+    {
+      "name": "msvc-release",
+      "configurePreset": "msvc-release"
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan"
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    },
+    {
+      "name": "msvc-asan",
+      "configurePreset": "msvc-asan"
+    },
+    {
+      "name": "lint",
+      "configurePreset": "lint",
+      "targets": [
+        "check-format",
+        "checkpatch"
+      ],
+      "nativeToolOptions": [
+        "-k",
+        "0"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "gcc-debug",
+      "inherits": "base",
+      "configurePreset": "gcc-debug"
+    },
+    {
+      "name": "gcc-release",
+      "inherits": "base",
+      "configurePreset": "gcc-release"
+    },
+    {
+      "name": "clang-debug",
+      "inherits": "base",
+      "configurePreset": "clang-debug"
+    },
+    {
+      "name": "clang-release",
+      "inherits": "base",
+      "configurePreset": "clang-release"
+    },
+    {
+      "name": "msvc-debug",
+      "inherits": "base",
+      "configurePreset": "msvc-debug"
+    },
+    {
+      "name": "msvc-release",
+      "inherits": "base",
+      "configurePreset": "msvc-release"
+    },
+    {
+      "name": "asan",
+      "inherits": "base",
+      "configurePreset": "asan",
+      "environment": {
+        "UBSAN_OPTIONS": "print_stacktrace=1"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "base",
+      "configurePreset": "tsan",
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1"
+      }
+    },
+    {
+      "name": "msvc-asan",
+      "inherits": "base",
+      "configurePreset": "msvc-asan"
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "gcc-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "gcc-debug"
+        },
+        {
+          "type": "build",
+          "name": "gcc-debug"
+        },
+        {
+          "type": "test",
+          "name": "gcc-debug"
+        }
+      ]
+    },
+    {
+      "name": "gcc-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "gcc-release"
+        },
+        {
+          "type": "build",
+          "name": "gcc-release"
+        },
+        {
+          "type": "test",
+          "name": "gcc-release"
+        }
+      ]
+    },
+    {
+      "name": "clang-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "clang-debug"
+        },
+        {
+          "type": "build",
+          "name": "clang-debug"
+        },
+        {
+          "type": "test",
+          "name": "clang-debug"
+        }
+      ]
+    },
+    {
+      "name": "clang-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "clang-release"
+        },
+        {
+          "type": "build",
+          "name": "clang-release"
+        },
+        {
+          "type": "test",
+          "name": "clang-release"
+        }
+      ]
+    },
+    {
+      "name": "msvc-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "msvc-debug"
+        },
+        {
+          "type": "build",
+          "name": "msvc-debug"
+        },
+        {
+          "type": "test",
+          "name": "msvc-debug"
+        }
+      ]
+    },
+    {
+      "name": "msvc-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "msvc-release"
+        },
+        {
+          "type": "build",
+          "name": "msvc-release"
+        },
+        {
+          "type": "test",
+          "name": "msvc-release"
+        }
+      ]
+    },
+    {
+      "name": "asan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "asan"
+        },
+        {
+          "type": "build",
+          "name": "asan"
+        },
+        {
+          "type": "test",
+          "name": "asan"
+        }
+      ]
+    },
+    {
+      "name": "tsan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "tsan"
+        },
+        {
+          "type": "build",
+          "name": "tsan"
+        },
+        {
+          "type": "test",
+          "name": "tsan"
+        }
+      ]
+    },
+    {
+      "name": "msvc-asan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "msvc-asan"
+        },
+        {
+          "type": "build",
+          "name": "msvc-asan"
+        },
+        {
+          "type": "test",
+          "name": "msvc-asan"
+        }
+      ]
+    },
+    {
+      "name": "lint",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "lint"
+        },
+        {
+          "type": "build",
+          "name": "lint"
+        }
+      ]
+    }
+  ]
+}
