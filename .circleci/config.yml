@@ -1,0 +1,124 @@
+# Builds and tests every push to every branch, and develop once a week, on
+# a schedule that the project settings hold. The `ci` job passes only when
+# every other job has passed.
+#
+# Each job runs workflow presets, so CI holds no build logic of its own.
+# The Linux jobs run in stock images on the Docker executor, and
+# ci/install-linux-tools.sh installs what each one needs. The Windows job
+# runs on CircleCI's own image, through ci/build-windows.ps1. The images
+# and tool versions are pinned here: change them by hand, and change the
+# tested versions in the README to match.
+#
+# A failed job keeps its configure and CTest logs as artifacts.
+version: 2.1
+
+commands:
+  # store_artifacts runs whether the job failed or not, and finds nothing
+  # to keep unless it did.
+  keep-logs:
+    steps:
+      - run:
+          name: Gather the logs
+          when: on_fail
+          command: ci/gather-logs.sh logs
+      - store_artifacts:
+          path: logs
+
+jobs:
+  # Workflow presets, in turn, in a stock Linux image, as root.
+  linux:
+    parameters:
+      image:
+        type: string
+      tools:
+        description: The arguments for ci/install-linux-tools.sh.
+        type: string
+        default: ""
+      presets:
+        type: string
+    docker:
+      - image: << parameters.image >>
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Install the tools
+          command: ci/install-linux-tools.sh << parameters.tools >>
+      - run:
+          name: Run << parameters.presets >>
+          command: |
+            for preset in << parameters.presets >>; do
+              cmake --workflow --preset "$preset"
+            done
+      - keep-logs
+
+  msvc:
+    machine:
+      image: windows-server-2025-gui:2026.05.1
+      shell: powershell.exe -ExecutionPolicy Bypass
+    resource_class: windows.medium
+    steps:
+      - checkout
+      - run:
+          name: Run msvc-debug, msvc-release and msvc-asan
+          command: >-
+            ci/build-windows.ps1 -Msvc 14.44 -CMake 4.4.4 -Ninja 1.13.2
+            -Presets msvc-debug, msvc-release, msvc-asan
+      - run:
+          name: Gather the logs
+          when: on_fail
+          command: ci/gather-logs.ps1 logs
+      - store_artifacts:
+          path: logs
+
+  ci:
+    docker:
+      - image: ubuntu:26.04
+    resource_class: small
+    steps:
+      - run:
+          name: Every other job passed
+          command: "true"
+
+workflows:
+  ci:
+    jobs:
+      # PyPI has no CMake 3.25.3, the oldest version Ninefold supports, so
+      # this job takes Kitware's build.
+      - linux:
+          name: gcc
+          image: gcc:16
+          tools: >-
+            --cmake 3.25.3
+            d4d2ba83301b215857d3b6590cd4434a414fa151c5807693abe587bd6c03581e
+          presets: gcc-debug gcc-release
+      - linux:
+          name: clang
+          image: ubuntu:26.04
+          tools: --llvm 23
+          presets: clang-debug clang-release
+      - linux:
+          name: asan
+          image: ubuntu:26.04
+          tools: --llvm 23 libclang-rt-23-dev
+          presets: asan
+      - linux:
+          name: tsan
+          image: ubuntu:26.04
+          tools: --llvm 23 libclang-rt-23-dev
+          presets: tsan
+      # No compiler: the lint preset needs none.
+      - linux:
+          name: lint
+          image: ubuntu:26.04
+          tools: --pip clang-format==22.1.8 perl
+          presets: lint
+      - msvc
+      - ci:
+          requires:
+            - gcc
+            - clang
+            - asan
+            - tsan
+            - lint
+            - msvc
