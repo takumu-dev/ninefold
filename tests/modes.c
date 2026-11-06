@@ -15,13 +15,19 @@ struct rec_tree {
 	struct recorder r;
 };
 
-static void rec_tree_init(struct rec_tree *rt)
+/* Mount the recorder, after the test has set up its operations. */
+static void rec_tree_mount(struct rec_tree *rt)
 {
-	recorder_init(&rt->r);
 	rt->t = nine_tree_new();
 	CHECK_PTR(rt->t, !=, NULL);
 	CHECK_INT(nine_mount(rt->t, "/rec", &rt->r.ops, &rt->r), ==, 0);
 	rt->ns = nine_tree_ns(rt->t);
+}
+
+static void rec_tree_init(struct rec_tree *rt)
+{
+	recorder_init(&rt->r);
+	rec_tree_mount(rt);
 }
 
 static void check_zero(const struct nine_handle *h)
@@ -132,12 +138,9 @@ static void test_no_write_op(void)
 
 	recorder_init(&rt.r);
 	rt.r.ops.write = NULL;
-	rt.t = nine_tree_new();
-	CHECK_PTR(rt.t, !=, NULL);
-	CHECK_INT(nine_mount(rt.t, "/rec", &rt.r.ops, &rt.r), ==, 0);
+	rec_tree_mount(&rt);
 
-	CHECK_INT(nine_open(nine_tree_ns(rt.t), "/rec/f", NINE_RDWR, &h), ==,
-		  0);
+	CHECK_INT(nine_open(rt.ns, "/rec/f", NINE_RDWR, &h), ==, 0);
 	rt.r.ncalls = 0;
 	CHECK_INT(nine_write(&h, buf, sizeof(buf), 0), ==, -EACCES);
 	CHECK_INT(nine_write(&h, buf, 0, 0), ==, -EACCES);
@@ -201,13 +204,10 @@ static void test_lookup_error_zeroes(void)
 
 	recorder_init(&rt.r);
 	rt.r.ops.lookup = failing_lookup;
-	rt.t = nine_tree_new();
-	CHECK_PTR(rt.t, !=, NULL);
-	CHECK_INT(nine_mount(rt.t, "/rec", &rt.r.ops, &rt.r), ==, 0);
+	rec_tree_mount(&rt);
 
 	scribble(&h);
-	CHECK_INT(nine_open(nine_tree_ns(rt.t), "/rec/a/b", NINE_RDWR, &h), ==,
-		  -ENOTDIR);
+	CHECK_INT(nine_open(rt.ns, "/rec/a/b", NINE_RDWR, &h), ==, -ENOTDIR);
 	check_zero(&h);
 	CHECK_INT(nine_read(&h, buf, sizeof(buf), 0), ==, -EBADF);
 

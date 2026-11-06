@@ -34,15 +34,21 @@ static void world_free(struct world *w)
 	demo_free(w->d);
 }
 
-/* Open the value file of the entity's position. */
-static void open_pos(struct world *w, int mode, struct nine_handle *h)
+/* Open @rest under the entity's directory, such as "components/transform". */
+static void open_entity(struct world *w, const char *rest, int mode,
+			struct nine_handle *h)
 {
 	char path[64];
 
-	snprintf(path, sizeof(path),
-		 "/world/entities/%lu/components/transform/pos",
-		 (unsigned long)w->id);
+	snprintf(path, sizeof(path), "/world/entities/%lu/%s",
+		 (unsigned long)w->id, rest);
 	CHECK_INT(nine_open(w->ns, path, mode, h), ==, 0);
+}
+
+/* Open the value file of the entity's position. */
+static void open_pos(struct world *w, int mode, struct nine_handle *h)
+{
+	open_entity(w, "components/transform/pos", mode, h);
 }
 
 /* A write through the tree shows in the native data at once. */
@@ -143,6 +149,7 @@ static void test_write_past_end(void)
 	world_free(&w);
 }
 
+/* A directory refuses every write, even an empty one. */
 static void test_write_dir(void)
 {
 	static const float pos[3] = { 1.0f, 2.0f, 3.0f };
@@ -152,9 +159,7 @@ static void test_write_dir(void)
 	world_init(&w);
 	CHECK_INT(nine_open(w.ns, "/world/entities", NINE_WRONLY, &h), ==, 0);
 	CHECK_INT(nine_write(&h, pos, sizeof(pos), 0), ==, -EISDIR);
-	CHECK_INT(nine_open(w.ns, "/world/entities/0/components/transform",
-			    NINE_RDWR, &h),
-		  ==, 0);
+	open_entity(&w, "components/transform", NINE_RDWR, &h);
 	CHECK_INT(nine_write(&h, pos, 0, 0), ==, -EISDIR);
 	world_free(&w);
 }
