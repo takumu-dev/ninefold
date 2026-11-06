@@ -239,8 +239,9 @@ static void test_stale_write(void)
 
 /*
  * Every operation through a stale node returns -ESTALE: a value file and the
- * directories of the destroyed entity alike. The file server's operations
- * are called as the framework calls them, with the handle's node.
+ * directories of the destroyed entity alike. No handle call looks a name up,
+ * so the file server's lookup is called as the framework calls it, with the
+ * handle's node.
  */
 static void test_stale_every_op(void)
 {
@@ -273,8 +274,8 @@ static void test_stale_every_op(void)
 		cursor = 0;
 		CHECK_INT(nine_read(&h[i], buf, sizeof(buf), 0), ==, -ESTALE);
 		CHECK_INT(nine_write(&h[i], buf, 4, 0), ==, -ESTALE);
-		CHECK_INT(ops->stat(w.d, node, &st), ==, -ESTALE);
-		CHECK_INT(ops->list(w.d, node, &cursor, buf, sizeof(buf)), ==,
+		CHECK_INT(nine_stat(&h[i], &st), ==, -ESTALE);
+		CHECK_INT(nine_list(&h[i], &cursor, buf, sizeof(buf)), ==,
 			  -ESTALE);
 		CHECK_INT(ops->lookup(w.d, node, "components",
 				      strlen("components"), &out),
