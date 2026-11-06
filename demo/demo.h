@@ -4,9 +4,18 @@
 
 /*
  * The demo file server. It keeps one dense column of vec3 f32 positions, one
- * per entity, and shows each live entity's position as a 12-byte value file:
+ * per entity, and shows it two ways. The bulk files are the whole column:
+ *
+ *	components/transform/pos	n x 12 bytes, the positions in slot order
+ *	components/transform/ids	n x 4 bytes, the uint32_t entity IDs in
+ *					slot order, read only
+ *
+ * Each live entity's position also shows as a 12-byte value file:
  *
  *	entities/<id>/components/transform/pos
+ *
+ * Both views reach the same memory. A bulk write follows the order of ids
+ * at the time of the write.
  *
  * The native calls below change the data as a real app would. They are
  * setup calls for the file server: none may run at the same time as any
