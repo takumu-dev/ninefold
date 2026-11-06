@@ -26,7 +26,7 @@ static void rec_tree_init(struct rec_tree *rt)
 
 static void check_zero(const struct nine_handle *h)
 {
-	static const struct nine_handle zero;
+	static const struct nine_handle zero = { 0 };
 
 	CHECK_MEM(h, &zero, sizeof(*h));
 }
@@ -90,7 +90,7 @@ static void test_read_write_only(void)
 
 static void test_zero_handle(void)
 {
-	static const struct nine_handle zero;
+	static const struct nine_handle zero = { 0 };
 	struct nine_handle h;
 	char buf[4];
 
