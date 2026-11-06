@@ -277,11 +277,38 @@ static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 	return read_range(d->pos[d->slots[id]], POS_SIZE, buf, len, off);
 }
 
+/*
+ * Copy a write into the part of a file of @size bytes at @dst, or refuse it
+ * when its range does not fit in the file.
+ */
+static int write_range(void *dst, size_t size, const void *buf, size_t len,
+		       uint64_t off)
+{
+	if (off > size || len > size - off)
+		return -EINVAL;
+
+	memcpy((char *)dst + off, buf, len);
+	return 0;
+}
+
+static int demo_write(void *priv, const struct nine_node *node, const void *buf,
+		      size_t len, uint64_t off)
+{
+	struct demo *d = priv;
+	uint32_t id = node_id(node);
+
+	if (is_dir(node_kind(node)))
+		return -EISDIR;
+
+	return write_range(d->pos[d->slots[id]], POS_SIZE, buf, len, off);
+}
+
 static const struct nine_file_server_ops ops = {
 	.lookup = demo_lookup,
 	.list = demo_list,
 	.stat = demo_stat,
 	.read = demo_read,
+	.write = demo_write,
 };
 
 const struct nine_file_server_ops *demo_ops(void)
