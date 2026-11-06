@@ -1,0 +1,76 @@
+# Ninefold formatting: the Linux kernel coding style, for C code.
+#
+# Written by hand from the kernel's coding-style document and the
+# clang-format option reference. It targets clang-format 22.1.8 exactly:
+# other versions format some code differently.
+---
+Language: Cpp
+BasedOnStyle: LLVM
+
+# Indent with tabs, 8 columns wide. Continuation lines align with tabs,
+# then spaces for the rest.
+UseTab: Always
+TabWidth: 8
+IndentWidth: 8
+ContinuationIndentWidth: 8
+ColumnLimit: 80
+
+# Braces on the same line for blocks, on a new line for functions.
+BreakBeforeBraces: Linux
+InsertBraces: false
+
+# Nothing short shares a line with its condition or its braces.
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseExpressionOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# switch and case on the same column, labels at the left margin.
+IndentCaseLabels: false
+IndentGotoLabels: false
+IndentPPDirectives: None
+
+# char *p, not char* p.
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# Fill each line with arguments and parameters, aligned after the open
+# parenthesis, before starting the next.
+AlignAfterOpenBracket: true
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: true
+BinPackParameters: BinPack
+BreakAfterReturnType: None
+
+# Operators end the line they break; strings never split.
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: false
+BreakStringLiterals: false
+AlignOperands: Align
+
+# Initialisers are written { 0 }, with spaces inside the braces.
+Cpp11BracedListStyle: Block
+
+AlignEscapedNewlines: Left
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpacesBeforeTrailingComments: 1
+
+# The author decides include order and comment layout.
+SortIncludes:
+  Enabled: false
+IncludeBlocks: Preserve
+ReflowComments: Never
+
+MaxEmptyLinesToKeep: 1
+KeepEmptyLines:
+  AtEndOfFile: false
+  AtStartOfBlock: false
+  AtStartOfFile: false
+InsertNewlineAtEOF: true
+LineEnding: LF
+...
