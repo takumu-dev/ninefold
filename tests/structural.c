@@ -16,6 +16,8 @@
 /* Enough entities to grow the column of NENTITIES several times. */
 #define NGROWN 50
 
+#define POS_SIZE (3 * sizeof(float))
+
 struct world {
 	struct nine_tree *t;
 	struct demo *d;
@@ -88,7 +90,7 @@ static void test_swap_remove(void)
 	struct nine_handle h[NENTITIES];
 	struct world w;
 	float want[3];
-	unsigned char buf[12];
+	unsigned char buf[POS_SIZE];
 	int i;
 
 	world_init(&w);
@@ -121,12 +123,13 @@ static void open_bulk(struct world *w, const char *name, struct nine_handle *h)
  */
 static void check_bulk(struct world *w, const uint32_t *want_ids, size_t n)
 {
-	uint32_t ids[64];
-	float pos[64][3], want[3];
+	/* Room for one entity more, so that a read shows any extra one. */
+	uint32_t ids[NGROWN + 1];
+	float pos[NGROWN + 1][3], want[3];
 	struct nine_handle h;
 	size_t i;
 
-	CHECK_UINT(n, <, 64);
+	CHECK_UINT(n, <=, NGROWN);
 	open_bulk(w, "ids", &h);
 	CHECK_INT(nine_read(&h, ids, sizeof(ids), 0), ==,
 		  (ptrdiff_t)(n * sizeof(*ids)));
@@ -176,7 +179,7 @@ static void test_id_reuse(void)
 	static const float pos[3] = { 9.0f, -9.5f, 0.75f };
 	struct nine_handle old, fresh;
 	struct world w;
-	unsigned char buf[12];
+	unsigned char buf[POS_SIZE];
 	uint32_t id;
 
 	world_init(&w);
@@ -193,37 +196,44 @@ static void test_id_reuse(void)
 }
 
 /*
+ * Writes through the stale handle @h return -ESTALE and leave the column of
+ * @n entities as it was.
+ */
+static void check_stale_write(struct world *w, const struct nine_handle *h,
+			      size_t n)
+{
+	static const float pos[3] = { 1.0f, 2.0f, 3.0f };
+	unsigned char before[NENTITIES * POS_SIZE], after[NENTITIES * POS_SIZE];
+	struct nine_handle bulk;
+
+	open_bulk(w, "pos", &bulk);
+	CHECK_INT(nine_read(&bulk, before, sizeof(before), 0), ==,
+		  (ptrdiff_t)(n * POS_SIZE));
+	CHECK_INT(nine_write(h, pos, sizeof(pos), 0), ==, -ESTALE);
+	CHECK_INT(nine_write(h, pos, sizeof(float), 2 * sizeof(float)), ==,
+		  -ESTALE);
+	CHECK_INT(nine_read(&bulk, after, sizeof(after), 0), ==,
+		  (ptrdiff_t)(n * POS_SIZE));
+	CHECK_MEM(after, before, n * POS_SIZE);
+}
+
+/*
  * A write through a stale handle changes nothing, even once a new entity
  * has the destroyed one's ID.
  */
 static void test_stale_write(void)
 {
-	static const float pos[3] = { 1.0f, 2.0f, 3.0f };
-	unsigned char before[NENTITIES * 12], after[NENTITIES * 12];
-	struct nine_handle h, bulk;
+	struct nine_handle h;
 	struct world w;
 	uint32_t id;
 
 	world_init(&w);
 	open_value(&w, w.ids[1], &h);
 	CHECK_INT(demo_destroy(w.d, w.ids[1]), ==, 0);
-	open_bulk(&w, "pos", &bulk);
-
-	CHECK_INT(nine_read(&bulk, before, sizeof(before), 0), ==,
-		  (NENTITIES - 1) * 12);
-	CHECK_INT(nine_write(&h, pos, sizeof(pos), 0), ==, -ESTALE);
-	CHECK_INT(nine_write(&h, pos, 4, 8), ==, -ESTALE);
-	CHECK_INT(nine_read(&bulk, after, sizeof(after), 0), ==,
-		  (NENTITIES - 1) * 12);
-	CHECK_MEM(after, before, (NENTITIES - 1) * 12);
+	check_stale_write(&w, &h, NENTITIES - 1);
 
 	CHECK_INT(demo_create(w.d, &id), ==, 0);
-	CHECK_INT(nine_read(&bulk, before, sizeof(before), 0), ==,
-		  NENTITIES * 12);
-	CHECK_INT(nine_write(&h, pos, sizeof(pos), 0), ==, -ESTALE);
-	CHECK_INT(nine_read(&bulk, after, sizeof(after), 0), ==,
-		  NENTITIES * 12);
-	CHECK_MEM(after, before, NENTITIES * 12);
+	check_stale_write(&w, &h, NENTITIES);
 	world_free(&w);
 }
 
@@ -266,8 +276,9 @@ static void test_stale_every_op(void)
 		CHECK_INT(ops->stat(w.d, node, &st), ==, -ESTALE);
 		CHECK_INT(ops->list(w.d, node, &cursor, buf, sizeof(buf)), ==,
 			  -ESTALE);
-		CHECK_INT(ops->lookup(w.d, node, "components", 10, &out), ==,
-			  -ESTALE);
+		CHECK_INT(ops->lookup(w.d, node, "components",
+				      strlen("components"), &out),
+			  ==, -ESTALE);
 	}
 
 	/* The destroyed entity's paths are gone. */
@@ -287,7 +298,7 @@ static void test_growth(void)
 	struct nine_handle h[NENTITIES];
 	struct world w;
 	uint32_t ids[NGROWN];
-	float want[3];
+	float want[3], got[3];
 	int i;
 
 	world_init(&w);
@@ -303,8 +314,8 @@ static void test_growth(void)
 		check_reads(&h[i], want);
 	}
 	CHECK_INT(nine_write(&h[2], pos, sizeof(pos), 0), ==, 0);
-	CHECK_INT(demo_get_pos(w.d, w.ids[2], want), ==, 0);
-	CHECK_MEM(want, pos, sizeof(want));
+	CHECK_INT(demo_get_pos(w.d, w.ids[2], got), ==, 0);
+	CHECK_MEM(got, pos, sizeof(got));
 	check_bulk(&w, ids, NGROWN);
 
 	/* A destroy after growth still moves the last entity. */
@@ -330,7 +341,7 @@ static void test_destroy_all(void)
 {
 	float pos[3] = { 0 };
 	struct world w;
-	uint32_t want[2];
+	uint32_t fresh[2];
 	int i, j;
 
 	world_init(&w);
@@ -345,18 +356,18 @@ static void test_destroy_all(void)
 		if (i != 3)
 			CHECK_INT(demo_destroy(w.d, w.ids[i]), ==, 0);
 	}
-	check_bulk(&w, want, 0);
+	check_bulk(&w, NULL, 0);
 
 	for (i = 0; i < 2; i++) {
-		CHECK_INT(demo_create(w.d, &want[i]), ==, 0);
+		CHECK_INT(demo_create(w.d, &fresh[i]), ==, 0);
 		for (j = 0; j < NENTITIES; j++) {
-			if (want[i] == w.ids[j])
+			if (fresh[i] == w.ids[j])
 				break;
 		}
 		CHECK_INT(j, <, NENTITIES);
 	}
-	CHECK_UINT(want[0], !=, want[1]);
-	check_bulk(&w, want, 2);
+	CHECK_UINT(fresh[0], !=, fresh[1]);
+	check_bulk(&w, fresh, 2);
 	world_free(&w);
 }
 
