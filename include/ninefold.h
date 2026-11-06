@@ -15,7 +15,10 @@ extern "C" {
  * calls: each needs the tree to itself. After setup, every other call takes
  * no lock and changes no shared state of the framework, so any number of
  * threads can make them on one tree at the same time. Calls into one file
- * server follow the overlap rule of struct nine_file_server_ops.
+ * server follow the overlap rule of struct nine_file_server_ops: the app
+ * keeps a write apart from every other call that uses the same data, and a
+ * native change to the structure of the data apart from every call to that
+ * file server.
  */
 
 /**
@@ -130,7 +133,8 @@ struct nine_handle {
  * time. A file server must allow a read at the same time as other reads. The
  * app must prevent a write at the same time as any other call that uses the
  * same data, and a native change to the structure of the data, such as a
- * create or a destroy, at the same time as any call to the file server.
+ * create, a destroy, a swap-remove or growth, at the same time as any call
+ * to the file server.
  */
 struct nine_file_server_ops {
 	int (*lookup)(void *priv, const struct nine_node *dir, const char *name,
@@ -175,7 +179,8 @@ void nine_tree_free(struct nine_tree *t);
  * The root namespace is part of the tree. It stays valid until
  * nine_tree_free(), and the caller does not free it.
  *
- * Context: Any thread, at the same time as any call except nine_tree_free().
+ * Context: Any thread, at the same time as any call except a setup call on
+ * the same tree.
  *
  * Return: The root namespace. This call cannot fail.
  */
@@ -217,7 +222,8 @@ int nine_mount(struct nine_tree *t, const char *path,
  * @path and a length, with no copy, so names have no length limit.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the same tree.
+ * the same tree, a write to data that a lookup uses, or a native change to
+ * the structure of the data of a file server on the path.
  *
  * Return: 0, -EINVAL for a bad path or mode, or an error from the file
  * server, such as -ENOENT for a missing node or -ENOTDIR for a path through a
@@ -239,7 +245,8 @@ int nine_open(struct nine_ns *ns, const char *path, int mode,
  * calls can skip or repeat names. The list gives no kinds: nine_stat() does.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the handle's tree.
+ * the handle's tree, a write to the same data, or a native change to the
+ * structure of the file server's data.
  *
  * Return: The number of names put in @buf, 0 at the end of the directory,
  * -ERANGE when the next name does not fit in @buf, -EBADF for a handle that
@@ -257,7 +264,8 @@ int nine_list(const struct nine_handle *dir, uint64_t *cursor, char *buf,
  * The framework zeroes @st before the file server fills it in.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the handle's tree.
+ * the handle's tree, a write to the same data, or a native change to the
+ * structure of the file server's data.
  *
  * Return: 0, -EBADF for a handle that is not valid, or an error from the
  * file server.
@@ -274,7 +282,8 @@ int nine_stat(const struct nine_handle *h, struct nine_stat *st);
  * The read is short only at the end of the file.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the handle's tree.
+ * the handle's tree, a write to the same data, or a native change to the
+ * structure of the file server's data.
  *
  * Return: The number of bytes read, 0 at or after the end of the file,
  * -EBADF for a handle that is not valid or not open for reading, or an error
@@ -301,7 +310,8 @@ ptrdiff_t nine_read(const struct nine_handle *h, void *buf, size_t len,
  * each handle.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the handles' trees.
+ * the handles' trees, a write to the same data, or a native change to the
+ * structure of the data of their file servers.
  *
  * Return: 0 when every handle succeeds, or else the error of the first one
  * that failed in @errs: -EBADF for a handle that is not valid or not open
@@ -323,7 +333,8 @@ int nine_read_many(const struct nine_handle *hs, size_t n, void *buf,
  * through any view of the node shows it.
  *
  * Context: Any thread, at the same time as any call except a setup call on
- * the handle's tree, or a call that uses the same data of the file server.
+ * the handle's tree, another call that uses the same data, or a native
+ * change to the structure of the file server's data.
  *
  * Return: 0, -EBADF for a handle that is not valid or not open for writing,
  * -EACCES when the file server has no write operation, or an error from the
