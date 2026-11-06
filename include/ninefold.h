@@ -2,6 +2,7 @@
 #ifndef NINEFOLD_H
 #define NINEFOLD_H
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -32,6 +33,17 @@ extern "C" {
  * NINE_RDONLY and NINE_WRONLY together.
  */
 #define NINE_RDWR 3
+
+/**
+ * define ESTALE - Error code of a file server for a handle to a node that no
+ * longer exists, such as a deleted object's.
+ *
+ * Not every C library has the name: the Windows one has none. There it takes
+ * the value of Winsock's WSAESTALE, which no errno value uses.
+ */
+#ifndef ESTALE
+#define ESTALE 10070
+#endif
 
 struct nine_tree;
 struct nine_ns;

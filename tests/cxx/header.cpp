@@ -5,6 +5,9 @@
  */
 #include "ninefold.h"
 
+/* ESTALE comes with the header, also where <errno.h> has no such name. */
+static_assert(ESTALE > 0, "ESTALE is a positive error code");
+
 int main()
 {
 	struct nine_tree *t = nine_tree_new();

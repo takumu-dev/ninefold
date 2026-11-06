@@ -28,19 +28,9 @@
  * other call to the same instance.
  */
 
-#include <errno.h>
 #include <stdint.h>
 
 #include "ninefold.h"
-
-/*
- * A handle to a destroyed entity's node returns -ESTALE. Not every C library
- * has the name: the Windows one has none. There it takes the value of
- * Winsock's WSAESTALE, which no errno value uses.
- */
-#ifndef ESTALE
-#define ESTALE 10070
-#endif
 
 struct demo;
 
