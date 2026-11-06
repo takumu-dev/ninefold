@@ -17,6 +17,8 @@ endfunction()
 
 ninefold_add_test(tree)
 ninefold_add_test(tree_threads)
+ninefold_add_test(two_trees)
+ninefold_add_test(shared_reads)
 ninefold_add_test(modes)
 ninefold_add_test(mount)
 ninefold_add_test(paths)
