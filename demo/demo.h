@@ -17,14 +17,30 @@
  * Both views reach the same memory. A bulk write follows the order of ids
  * at the time of the write.
  *
+ * Destroying an entity moves the last one into its slot, so the order of
+ * ids changes, and the column moves in memory as it grows. A handle to an
+ * entity's node keeps finding it through both. Once the entity is
+ * destroyed, every operation through such a handle returns -ESTALE, even
+ * after a new entity has taken its ID.
+ *
  * The native calls below change the data as a real app would. They are
  * setup calls for the file server: none may run at the same time as any
  * other call to the same instance.
  */
 
+#include <errno.h>
 #include <stdint.h>
 
 #include "ninefold.h"
+
+/*
+ * A handle to a destroyed entity's node returns -ESTALE. Not every C library
+ * has the name: the Windows one has none. There it takes the value of
+ * Winsock's WSAESTALE, which no errno value uses.
+ */
+#ifndef ESTALE
+#define ESTALE 10070
+#endif
 
 struct demo;
 
@@ -35,11 +51,20 @@ struct demo *demo_new(void);
 void demo_free(struct demo *d);
 
 /*
- * demo_create() - Make a new entity, at position (0, 0, 0).
+ * demo_create() - Make a new entity, at position (0, 0, 0). It takes the ID
+ * of a destroyed entity when there is one.
  *
  * Return: 0 with its ID in *@id, or -ENOMEM.
  */
 int demo_create(struct demo *d, uint32_t *id);
+
+/*
+ * demo_destroy() - Destroy an entity. The last entity in the column moves
+ * into its slot, and its ID is free for a later demo_create().
+ *
+ * Return: 0 or -ENOENT.
+ */
+int demo_destroy(struct demo *d, uint32_t id);
 
 /* demo_get_pos() - Read an entity's position. Return: 0 or -ENOENT. */
 int demo_get_pos(const struct demo *d, uint32_t id, float pos[3]);
