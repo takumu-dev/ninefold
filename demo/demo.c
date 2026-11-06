@@ -26,10 +26,15 @@ struct demo {
 /*
  * A node value holds the node kind in the low half of w[0], the entity's
  * generation in the high half, and the entity ID in w[1]. w[2] stays zero.
- * The root, all zeros, has kind NODE_ROOT.
+ * The root, all zeros, has kind NODE_ROOT. The nodes outside entities/ belong
+ * to no entity, so their ID and generation stay zero.
  */
 enum node_kind {
 	NODE_ROOT,
+	NODE_COMPONENTS,
+	NODE_TRANSFORM,
+	NODE_POS,
+	NODE_IDS,
 	NODE_ENTITIES,
 	NODE_ENTITY,
 	NODE_ENTITY_COMPONENTS,
@@ -185,6 +190,10 @@ static const struct {
 	const char *name;
 	enum node_kind kind;
 } fixed_names[] = {
+	{ NODE_ROOT, "components", NODE_COMPONENTS },
+	{ NODE_COMPONENTS, "transform", NODE_TRANSFORM },
+	{ NODE_TRANSFORM, "pos", NODE_POS },
+	{ NODE_TRANSFORM, "ids", NODE_IDS },
 	{ NODE_ROOT, "entities", NODE_ENTITIES },
 	{ NODE_ENTITY, "components", NODE_ENTITY_COMPONENTS },
 	{ NODE_ENTITY_COMPONENTS, "transform", NODE_ENTITY_TRANSFORM },
@@ -193,7 +202,7 @@ static const struct {
 
 static bool is_dir(enum node_kind kind)
 {
-	return kind != NODE_ENTITY_POS;
+	return kind != NODE_POS && kind != NODE_IDS && kind != NODE_ENTITY_POS;
 }
 
 static int lookup_entity(const struct demo *d, const char *name, size_t len,
@@ -252,6 +261,33 @@ static int demo_stat(void *priv, const struct nine_node *node,
 	return -EOPNOTSUPP;
 }
 
+/*
+ * Find the memory of the file at @node and its size in bytes. The bulk files
+ * are the whole column, and a value file is one entity's slot in it.
+ *
+ * Return: true, or false when @node is a directory.
+ */
+static bool file_data(const struct demo *d, const struct nine_node *node,
+		      void **data, size_t *size)
+{
+	switch (node_kind(node)) {
+	case NODE_POS:
+		*data = d->pos;
+		*size = d->n * POS_SIZE;
+		return true;
+	case NODE_IDS:
+		*data = d->ids;
+		*size = d->n * sizeof(*d->ids);
+		return true;
+	case NODE_ENTITY_POS:
+		*data = d->pos[d->slots[node_id(node)]];
+		*size = POS_SIZE;
+		return true;
+	default:
+		return false;
+	}
+}
+
 /* Copy the part of a file of @size bytes at @src that a read asks for. */
 static ptrdiff_t read_range(const void *src, size_t size, void *buf, size_t len,
 			    uint64_t off)
@@ -268,18 +304,19 @@ static ptrdiff_t read_range(const void *src, size_t size, void *buf, size_t len,
 static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 			   size_t len, uint64_t off)
 {
-	const struct demo *d = priv;
-	uint32_t id = node_id(node);
+	void *data;
+	size_t size;
 
-	if (is_dir(node_kind(node)))
+	if (!file_data(priv, node, &data, &size))
 		return -EISDIR;
 
-	return read_range(d->pos[d->slots[id]], POS_SIZE, buf, len, off);
+	return read_range(data, size, buf, len, off);
 }
 
 /*
  * Copy a write into the part of a file of @size bytes at @dst, or refuse it
- * when its range does not fit in the file.
+ * when its range does not fit in the file. An empty file may have no memory,
+ * so an empty write copies nothing.
  */
 static int write_range(void *dst, size_t size, const void *buf, size_t len,
 		       uint64_t off)
@@ -287,20 +324,23 @@ static int write_range(void *dst, size_t size, const void *buf, size_t len,
 	if (off > size || len > size - off)
 		return -EINVAL;
 
-	memcpy((char *)dst + off, buf, len);
+	if (len)
+		memcpy((char *)dst + off, buf, len);
 	return 0;
 }
 
 static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 		      size_t len, uint64_t off)
 {
-	struct demo *d = priv;
-	uint32_t id = node_id(node);
+	void *data;
+	size_t size;
 
-	if (is_dir(node_kind(node)))
+	if (node_kind(node) == NODE_IDS)
+		return -EACCES;
+	if (!file_data(priv, node, &data, &size))
 		return -EISDIR;
 
-	return write_range(d->pos[d->slots[id]], POS_SIZE, buf, len, off);
+	return write_range(data, size, buf, len, off);
 }
 
 static const struct nine_file_server_ops ops = {

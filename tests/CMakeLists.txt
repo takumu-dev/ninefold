@@ -21,6 +21,7 @@ ninefold_add_test(mount)
 ninefold_add_test(paths)
 ninefold_add_test(value_file)
 ninefold_add_test(write)
+ninefold_add_test(bulk)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)
