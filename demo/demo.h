@@ -17,7 +17,8 @@
  * entities/ lists the IDs of the live entities in decimal, smallest first.
  *
  * Both views reach the same memory. A bulk write follows the order of ids
- * at the time of the write.
+ * at the time of the write. A batched read reads whole files only: a size
+ * other than a file's fails with -EINVAL.
  *
  * Destroying an entity moves the last one into its slot, so the order of
  * ids changes, and the column moves in memory as it grows. A handle to an

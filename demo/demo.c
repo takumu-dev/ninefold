@@ -470,12 +470,48 @@ static int demo_stat(void *priv, const struct nine_node *node,
 	return 0;
 }
 
+/* Copy the whole file at @node, which must be @size bytes long, to @buf. */
+static int read_value(const struct demo *d, const struct nine_node *node,
+		      void *buf, size_t size)
+{
+	void *data;
+	size_t file_size;
+
+	if (is_stale(d, node))
+		return -ESTALE;
+	if (!file_data(d, node, &data, &file_size))
+		return -EISDIR;
+	if (file_size != size)
+		return -EINVAL;
+
+	if (size)
+		memcpy(buf, data, size);
+	return 0;
+}
+
+static int demo_read_many(void *priv, const struct nine_handle *hs, size_t n,
+			  void *buf, size_t size, int *errs)
+{
+	char *p = buf;
+	size_t i;
+	int ret = 0;
+
+	for (i = 0; i < n; i++) {
+		errs[i] = read_value(priv, nine_handle_node(&hs[i]),
+				     p + i * size, size);
+		if (!ret)
+			ret = errs[i];
+	}
+	return ret;
+}
+
 static const struct nine_file_server_ops ops = {
 	.lookup = demo_lookup,
 	.list = demo_list,
 	.stat = demo_stat,
 	.read = demo_read,
 	.write = demo_write,
+	.read_many = demo_read_many,
 };
 
 const struct nine_file_server_ops *demo_ops(void)

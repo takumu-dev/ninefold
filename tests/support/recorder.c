@@ -71,11 +71,9 @@ static int rec_read_many(void *priv, const struct nine_handle *hs, size_t n,
 
 	(void)buf;
 	(void)size;
-	for (i = 0; i < n; i++) {
-		record(priv, RECORDER_READ_MANY, nine_handle_node(&hs[i]), NULL,
-		       0);
+	record(priv, RECORDER_READ_MANY, nine_handle_node(hs), NULL, n);
+	for (i = 0; i < n; i++)
 		errs[i] = 0;
-	}
 	return 0;
 }
 

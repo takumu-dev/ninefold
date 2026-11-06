@@ -117,8 +117,11 @@ struct nine_handle {
  *	0 or a negative error code. A write never changes the size of a file.
  *	Optional: when NULL, every write returns -EACCES.
  * @read_many: Read exactly @size bytes for each of the @n handles @hs into
- *	@buf at i * @size, with the result of each in @errs[i]. Optional: when
- *	NULL, the framework calls @read for each handle.
+ *	@buf at i * @size, with the result of each in @errs[i], and return 0
+ *	or the first error in @errs, as nine_read_many() does. A file whose
+ *	size is not @size fails with -EINVAL. The handles are all of this
+ *	file server and open for reading. Optional: when NULL, the framework
+ *	calls @stat and @read for each handle.
  *
  * Every operation gets the private pointer given to nine_mount() as @priv.
  * The framework never shows a file server the access mode of a handle.
@@ -279,6 +282,34 @@ int nine_stat(const struct nine_handle *h, struct nine_stat *st);
  */
 ptrdiff_t nine_read(const struct nine_handle *h, void *buf, size_t len,
 		    uint64_t off);
+
+/**
+ * nine_read_many() - Read the values of many files through their handles.
+ * @hs: The handles, each open for reading.
+ * @n: The number of handles.
+ * @buf: Gets the value of the file of @hs[i] at @buf + i * @size.
+ * @size: The size of each value in bytes.
+ * @errs: Gets 0 or a negative error code for each handle.
+ *
+ * Each handle reads exactly @size bytes from the start of its file. A
+ * handle that fails does not stop the others, and its part of @buf is left
+ * as it was. The handles can belong to different file servers. Each run of
+ * handles of one mount in a row is one call to its file server, so a batch
+ * grouped by mount costs the fewest calls. The batch is not sorted.
+ *
+ * A file server with no read_many operation gets a stat and then a read for
+ * each handle.
+ *
+ * Context: Any thread, at the same time as any call except a setup call on
+ * the handles' trees.
+ *
+ * Return: 0 when every handle succeeds, or else the error of the first one
+ * that failed in @errs: -EBADF for a handle that is not valid or not open
+ * for reading, -EINVAL for a file whose size is not @size, or an error from
+ * the file server, such as -ESTALE.
+ */
+int nine_read_many(const struct nine_handle *hs, size_t n, void *buf,
+		   size_t size, int *errs);
 
 /**
  * nine_write() - Write to a file through a handle.

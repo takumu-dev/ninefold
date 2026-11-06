@@ -8,7 +8,8 @@
  *
  * Every lookup succeeds, so any path opens. The node it makes is one deeper
  * than its directory: w[0] counts the names walked from the mount root. A
- * read returns 0 bytes.
+ * read returns 0 bytes. A read_many writes no bytes and sets the result of
+ * every handle to 0.
  */
 
 #include <stddef.h>
@@ -31,7 +32,8 @@ enum recorder_op {
  * @op: The operation called.
  * @node: The node it was called on.
  * @name: For a lookup, the name pointer it got.
- * @len: For a lookup, the name length it got.
+ * @len: For a lookup, the name length it got. For a read_many, the number
+ *	of handles it got, the first of them in @node.
  */
 struct recorder_call {
 	enum recorder_op op;
