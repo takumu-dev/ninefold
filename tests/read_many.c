@@ -251,7 +251,10 @@ static void test_one_call_per_run(void)
 	nine_tree_free(tr.t);
 }
 
-/* A file server with no read_many gets a read for each handle instead. */
+/*
+ * A file server with no read_many gets a stat and a read for each handle
+ * instead.
+ */
 static void test_read_many_fallback(void)
 {
 	struct two_recs tr;
@@ -265,11 +268,14 @@ static void test_read_many_fallback(void)
 	open_mixed_batch(&tr, hs);
 
 	CHECK_INT(nine_read_many(hs, 5, buf, 0, errs), ==, 0);
-	CHECK_UINT(tr.a.ncalls, ==, 3);
+	CHECK_UINT(tr.a.ncalls, ==, 6);
 	CHECK_UINT(tr.b.ncalls, ==, 1);
-	check_call(&tr.a.calls[0], RECORDER_READ, 1);
-	check_call(&tr.a.calls[1], RECORDER_READ, 2);
-	check_call(&tr.a.calls[2], RECORDER_READ, 5);
+	check_call(&tr.a.calls[0], RECORDER_STAT, 1);
+	check_call(&tr.a.calls[1], RECORDER_READ, 1);
+	check_call(&tr.a.calls[2], RECORDER_STAT, 2);
+	check_call(&tr.a.calls[3], RECORDER_READ, 2);
+	check_call(&tr.a.calls[4], RECORDER_STAT, 5);
+	check_call(&tr.a.calls[5], RECORDER_READ, 5);
 	check_run(&tr.b.calls[0], 3, 2);
 
 	nine_tree_free(tr.t);
@@ -346,10 +352,11 @@ static void test_directory_item(const struct nine_file_server_ops *ops)
 }
 
 /*
- * The demo's own read_many refuses a size other than the size of a file
- * with -EINVAL, and leaves every part of the buffer as it was.
+ * A size other than the size of a file fails with -EINVAL, and leaves every
+ * part of the buffer as it was, also when the framework reads each handle
+ * for a file server with no read_many.
  */
-static void test_wrong_size(void)
+static void test_wrong_size(const struct nine_file_server_ops *ops)
 {
 	static const size_t sizes[] = { POS_SIZE - 4, POS_SIZE + 4 };
 	struct world w;
@@ -359,7 +366,7 @@ static void test_wrong_size(void)
 	size_t i;
 	int j;
 
-	world_init(&w, demo_ops());
+	world_init(&w, ops);
 	memset(untouched, 0xa5, sizeof(untouched));
 	for (i = 0; i < ARRAY_SIZE(sizes); i++) {
 		memset(got, 0xa5, sizeof(got));
@@ -373,32 +380,13 @@ static void test_wrong_size(void)
 	world_free(&w);
 }
 
-/*
- * Without a read_many of the file server, a read shorter than the size asked
- * for fails with -EINVAL.
- */
-static void test_short_read_fallback(const struct nine_file_server_ops *ops)
-{
-	struct world w;
-	unsigned char got[NENTITIES][POS_SIZE + 4];
-	int errs[NENTITIES];
-	int i;
-
-	world_init(&w, ops);
-	CHECK_INT(nine_read_many(w.hs, NENTITIES, got, POS_SIZE + 4, errs), ==,
-		  -EINVAL);
-	for (i = 0; i < NENTITIES; i++)
-		CHECK_INT(errs[i], ==, -EINVAL);
-
-	world_free(&w);
-}
-
 static void run_demo_tests(const struct nine_file_server_ops *ops)
 {
 	test_directory_item(ops);
 	test_same_bytes_as_single_reads(ops);
 	test_destroyed_entity(ops);
 	test_first_error_returned(ops);
+	test_wrong_size(ops);
 }
 
 int main(void)
@@ -409,8 +397,6 @@ int main(void)
 
 	run_demo_tests(demo_ops());
 	run_demo_tests(&no_read_many);
-	test_wrong_size();
-	test_short_read_fallback(&no_read_many);
 	test_one_call_per_run();
 	test_read_many_fallback();
 	test_bad_handle_ends_run();

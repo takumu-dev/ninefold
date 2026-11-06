@@ -53,11 +53,23 @@ ptrdiff_t nine_read(const struct nine_handle *h, void *buf, size_t len,
 	return m->ops->read(m->priv, &h->node, buf, len, off);
 }
 
-/* Read one value for a file server with no read_many operation. */
+/*
+ * Read one value for a file server with no read_many operation. The stat
+ * refuses a file of another size before the read can write to @buf, and
+ * leaves a directory to fail in the read with the file server's error.
+ */
 static int read_one(const struct nine_handle *h, void *buf, size_t size)
 {
 	const struct nine_mount *m = h->mount;
+	struct nine_stat st;
 	ptrdiff_t ret;
+	int err;
+
+	err = nine_stat(h, &st);
+	if (err)
+		return err;
+	if (st.kind == NINE_FILE && st.size != size)
+		return -EINVAL;
 
 	ret = m->ops->read(m->priv, &h->node, buf, size, 0);
 	if (ret < 0)

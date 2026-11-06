@@ -118,9 +118,10 @@ struct nine_handle {
  *	Optional: when NULL, every write returns -EACCES.
  * @read_many: Read exactly @size bytes for each of the @n handles @hs into
  *	@buf at i * @size, with the result of each in @errs[i], and return 0
- *	or the first error in @errs, as nine_read_many() does. The handles
- *	are all of this file server and open for reading. Optional: when NULL,
- *	the framework calls @read for each handle.
+ *	or the first error in @errs, as nine_read_many() does. A file whose
+ *	size is not @size fails with -EINVAL. The handles are all of this
+ *	file server and open for reading. Optional: when NULL, the framework
+ *	calls @stat and @read for each handle.
  *
  * Every operation gets the private pointer given to nine_mount() as @priv.
  * The framework never shows a file server the access mode of a handle.
@@ -296,16 +297,16 @@ ptrdiff_t nine_read(const struct nine_handle *h, void *buf, size_t len,
  * handles of one mount in a row is one call to its file server, so a batch
  * grouped by mount costs the fewest calls. The batch is not sorted.
  *
- * A file server with no read_many operation gets a read for each handle.
- * There, a handle whose file is shorter than @size fails with -EINVAL, and
- * its part of @buf may hold the bytes that were read.
+ * A file server with no read_many operation gets a stat and then a read for
+ * each handle.
  *
  * Context: Any thread, at the same time as any call except a setup call on
  * the handles' trees.
  *
  * Return: 0 when every handle succeeds, or else the error of the first one
  * that failed in @errs: -EBADF for a handle that is not valid or not open
- * for reading, or an error from the file server, such as -ESTALE.
+ * for reading, -EINVAL for a file whose size is not @size, or an error from
+ * the file server, such as -ESTALE.
  */
 int nine_read_many(const struct nine_handle *hs, size_t n, void *buf,
 		   size_t size, int *errs);
