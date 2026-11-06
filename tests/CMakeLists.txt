@@ -1,20 +1,25 @@
 find_package(Threads REQUIRED)
 
-add_library(ninefold_test_support STATIC support/thread.c)
+add_library(ninefold_test_support STATIC support/recorder.c support/thread.c)
 target_include_directories(ninefold_test_support PUBLIC support)
-target_link_libraries(ninefold_test_support PUBLIC Threads::Threads)
+target_link_libraries(ninefold_test_support
+	PUBLIC ninefold::ninefold Threads::Threads)
 
 # One executable per test, so that a crash ends only that test. CTest
 # judges each by its exit code.
 function(ninefold_add_test name)
 	add_executable(test_${name} ${name}.c)
 	target_link_libraries(test_${name}
-		PRIVATE ninefold::ninefold ninefold_test_support)
+		PRIVATE ninefold::ninefold ninefold_test_support ninefold_demo)
 	add_test(NAME ${name} COMMAND test_${name})
 endfunction()
 
 ninefold_add_test(tree)
 ninefold_add_test(tree_threads)
+ninefold_add_test(modes)
+ninefold_add_test(mount)
+ninefold_add_test(paths)
+ninefold_add_test(value_file)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)

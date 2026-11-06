@@ -42,13 +42,20 @@ else()
 	add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-add_library(ninefold STATIC src/ninefold.c)
+add_library(ninefold STATIC
+	src/handle.c
+	src/path.c
+	src/tree.c)
 add_library(ninefold::ninefold ALIAS ninefold)
 target_sources(ninefold
 	PUBLIC
 		FILE_SET HEADERS
 		BASE_DIRS include
 		FILES include/ninefold.h)
+
+if(NINEFOLD_BUILD_TESTS OR NINEFOLD_BUILD_DEMO OR NINEFOLD_BUILD_BENCH)
+	add_subdirectory(demo)
+endif()
 
 if(NINEFOLD_BUILD_TESTS)
 	enable_testing()
