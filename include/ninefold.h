@@ -225,6 +225,28 @@ ptrdiff_t nine_read(const struct nine_handle *h, void *buf, size_t len,
 		    uint64_t off);
 
 /**
+ * nine_write() - Write to a file through a handle.
+ * @h: A handle open for writing.
+ * @buf: The bytes to write.
+ * @len: The number of bytes to write.
+ * @off: The offset in the file to write at.
+ *
+ * The write applies all @len bytes or none, and never changes the size of
+ * the file. It takes effect before the call returns, so every later read
+ * through any view of the node shows it.
+ *
+ * Context: Any thread, at the same time as any call except a setup call on
+ * the handle's tree, or a call that uses the same data of the file server.
+ *
+ * Return: 0, -EBADF for a handle that is not valid or not open for writing,
+ * -EACCES when the file server has no write operation, or an error from the
+ * file server, such as -EISDIR for a directory or -EINVAL for a range past
+ * the end of the file.
+ */
+int nine_write(const struct nine_handle *h, const void *buf, size_t len,
+	       uint64_t off);
+
+/**
  * nine_handle_node() - Get the node value of a handle.
  * @h: The handle.
  *
