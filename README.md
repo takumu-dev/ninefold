@@ -54,6 +54,11 @@ Each preset builds in `build/<preset>`. The presets treat warnings as
 errors. A plain CMake build doesn't, so a newer compiler with a new warning
 never breaks an app that builds Ninefold.
 
+To see a tree, run the demo program, `ninefold_walk` in
+`build/<preset>/demo`. It mounts two demo file servers, each holding a few
+entities with positions, then walks the tree from `/` and prints each
+node's path, kind and size, and the bytes of each file.
+
 ## Using it in your project
 
 Ninefold builds as a static library with one public header,
