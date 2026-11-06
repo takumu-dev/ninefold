@@ -10,8 +10,13 @@
 #define POS_SIZE (3 * sizeof(float))
 
 /*
- * The column is dense: slot i holds the position of the entity ids[i]. An
- * ID finds its slot through slots[], and gens[] holds its generation.
+ * The column is dense: slot i < n holds the position of the entity ids[i].
+ * An ID finds its slot through slots[], and gens[] holds its generation.
+ *
+ * Past the live entities, ids[n] to ids[nids - 1] hold the free IDs, each
+ * with its index in slots[] too. Destroying an entity swaps its ID with the
+ * last live one, so it becomes the first free ID, and demo_create() takes
+ * the first free ID before it makes a new one.
  */
 struct demo {
 	float (*pos)[3];
@@ -36,6 +41,7 @@ enum node_kind {
 	NODE_POS,
 	NODE_IDS,
 	NODE_ENTITIES,
+	/* The nodes from here on belong to an entity. */
 	NODE_ENTITY,
 	NODE_ENTITY_COMPONENTS,
 	NODE_ENTITY_TRANSFORM,
@@ -126,10 +132,12 @@ int demo_create(struct demo *d, uint32_t *id)
 			return err;
 	}
 
-	*id = d->nids++;
-	d->gens[*id] = 0;
-	d->slots[*id] = d->n;
-	d->ids[d->n] = *id;
+	if (d->n == d->nids) {
+		d->gens[d->nids] = 0;
+		d->slots[d->nids] = d->n;
+		d->ids[d->n] = d->nids++;
+	}
+	*id = d->ids[d->n];
 	memset(d->pos[d->n], 0, POS_SIZE);
 	d->n++;
 	return 0;
@@ -137,7 +145,34 @@ int demo_create(struct demo *d, uint32_t *id)
 
 static bool is_live(const struct demo *d, uint32_t id)
 {
-	return id < d->nids;
+	return id < d->nids && d->slots[id] < d->n;
+}
+
+/* Swap the entities or free IDs at index @i and @j of ids[]. */
+static void swap_ids(struct demo *d, uint32_t i, uint32_t j)
+{
+	uint32_t id = d->ids[i];
+
+	d->ids[i] = d->ids[j];
+	d->ids[j] = id;
+	d->slots[d->ids[i]] = i;
+	d->slots[d->ids[j]] = j;
+}
+
+int demo_destroy(struct demo *d, uint32_t id)
+{
+	uint32_t slot, last;
+
+	if (!is_live(d, id))
+		return -ENOENT;
+
+	slot = d->slots[id];
+	last = d->n - 1;
+	memcpy(d->pos[slot], d->pos[last], POS_SIZE);
+	swap_ids(d, slot, last);
+	d->n--;
+	d->gens[id]++;
+	return 0;
 }
 
 int demo_get_pos(const struct demo *d, uint32_t id, float pos[3])
@@ -200,6 +235,16 @@ static const struct {
 	{ NODE_ENTITY_TRANSFORM, "pos", NODE_ENTITY_POS },
 };
 
+/*
+ * Tell whether @node belongs to an entity destroyed since the node was made.
+ * Its ID may be live again, as a new entity with a later generation.
+ */
+static bool is_stale(const struct demo *d, const struct nine_node *node)
+{
+	return node_kind(node) >= NODE_ENTITY &&
+	       node_gen(node) != d->gens[node_id(node)];
+}
+
 static bool is_dir(enum node_kind kind)
 {
 	return kind != NODE_POS && kind != NODE_IDS && kind != NODE_ENTITY_POS;
@@ -224,6 +269,8 @@ static int demo_lookup(void *priv, const struct nine_node *dir,
 	enum node_kind kind = node_kind(dir);
 	size_t i;
 
+	if (is_stale(d, dir))
+		return -ESTALE;
 	if (!is_dir(kind))
 		return -ENOTDIR;
 	if (kind == NODE_ENTITIES)
@@ -240,12 +287,13 @@ static int demo_lookup(void *priv, const struct nine_node *dir,
 	return -ENOENT;
 }
 
-/* Listing and stat are not served yet. */
+/* Listing and stat are not served yet, past the check for a stale node. */
 static int demo_list(void *priv, const struct nine_node *dir, uint64_t *cursor,
 		     char *buf, size_t len)
 {
-	(void)priv;
-	(void)dir;
+	if (is_stale(priv, dir))
+		return -ESTALE;
+
 	(void)cursor;
 	(void)buf;
 	(void)len;
@@ -255,8 +303,9 @@ static int demo_list(void *priv, const struct nine_node *dir, uint64_t *cursor,
 static int demo_stat(void *priv, const struct nine_node *node,
 		     struct nine_stat *st)
 {
-	(void)priv;
-	(void)node;
+	if (is_stale(priv, node))
+		return -ESTALE;
+
 	(void)st;
 	return -EOPNOTSUPP;
 }
@@ -307,6 +356,8 @@ static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 	void *data;
 	size_t size;
 
+	if (is_stale(priv, node))
+		return -ESTALE;
 	if (!file_data(priv, node, &data, &size))
 		return -EISDIR;
 
@@ -335,6 +386,8 @@ static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 	void *data;
 	size_t size;
 
+	if (is_stale(priv, node))
+		return -ESTALE;
 	if (node_kind(node) == NODE_IDS)
 		return -EACCES;
 	if (!file_data(priv, node, &data, &size))
