@@ -73,10 +73,10 @@ static size_t slot_of(struct world *w, uint32_t id)
 		  (ptrdiff_t)sizeof(ids));
 	for (i = 0; i < NENTITIES; i++) {
 		if (ids[i] == id)
-			return i;
+			break;
 	}
-	CHECK(!"the entity is in ids");
-	return 0;
+	CHECK_UINT(i, <, NENTITIES);
+	return i;
 }
 
 static void open_value(struct world *w, uint32_t id, int mode,
@@ -99,6 +99,21 @@ static void native_column(struct world *w, float col[NENTITIES][3])
 		CHECK_INT(demo_get_pos(w->d, w->ids[i],
 				       col[slot_of(w, w->ids[i])]),
 			  ==, 0);
+}
+
+/* Each entity's value file reads the same as its slot of @col. */
+static void check_values(struct world *w, float col[NENTITIES][3])
+{
+	struct nine_handle h;
+	float got[3];
+	int i;
+
+	for (i = 0; i < NENTITIES; i++) {
+		open_value(w, w->ids[i], NINE_RDONLY, &h);
+		CHECK_INT(nine_read(&h, got, sizeof(got), 0), ==,
+			  (ptrdiff_t)sizeof(got));
+		CHECK_MEM(got, col[slot_of(w, w->ids[i])], sizeof(got));
+	}
 }
 
 /* One read of pos gives the whole native column, n x 12 bytes. */
@@ -175,9 +190,8 @@ static void test_value_write_shows_in_bulk(void)
 static void test_bulk_write_shows_in_values(void)
 {
 	float col[NENTITIES][3];
-	struct nine_handle bulk, value;
+	struct nine_handle bulk;
 	struct world w;
-	float got[3];
 	size_t i;
 
 	world_init(&w);
@@ -188,13 +202,7 @@ static void test_bulk_write_shows_in_values(void)
 	}
 	open_bulk(&w, "pos", NINE_WRONLY, &bulk);
 	CHECK_INT(nine_write(&bulk, col, sizeof(col), 0), ==, 0);
-
-	for (i = 0; i < NENTITIES; i++) {
-		open_value(&w, w.ids[i], NINE_RDONLY, &value);
-		CHECK_INT(nine_read(&value, got, sizeof(got), 0), ==,
-			  (ptrdiff_t)sizeof(got));
-		CHECK_MEM(got, col[slot_of(&w, w.ids[i])], sizeof(got));
-	}
+	check_values(&w, col);
 	world_free(&w);
 }
 
@@ -206,9 +214,8 @@ static void test_partial_bulk_write(void)
 {
 	unsigned char bytes[20];
 	float want[NENTITIES][3];
-	struct nine_handle bulk, value;
+	struct nine_handle bulk;
 	struct world w;
-	float got[3];
 	size_t i;
 
 	for (i = 0; i < sizeof(bytes); i++)
@@ -219,13 +226,7 @@ static void test_partial_bulk_write(void)
 
 	open_bulk(&w, "pos", NINE_WRONLY, &bulk);
 	CHECK_INT(nine_write(&bulk, bytes, sizeof(bytes), 20), ==, 0);
-
-	for (i = 0; i < NENTITIES; i++) {
-		open_value(&w, w.ids[i], NINE_RDONLY, &value);
-		CHECK_INT(nine_read(&value, got, sizeof(got), 0), ==,
-			  (ptrdiff_t)sizeof(got));
-		CHECK_MEM(got, want[slot_of(&w, w.ids[i])], sizeof(got));
-	}
+	check_values(&w, want);
 	world_free(&w);
 }
 

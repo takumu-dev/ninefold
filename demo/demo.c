@@ -261,6 +261,33 @@ static int demo_stat(void *priv, const struct nine_node *node,
 	return -EOPNOTSUPP;
 }
 
+/*
+ * Find the memory of the file at @node and its size in bytes. The bulk files
+ * are the whole column, and a value file is one entity's slot in it.
+ *
+ * Return: true, or false when @node is a directory.
+ */
+static bool file_data(const struct demo *d, const struct nine_node *node,
+		      void **data, size_t *size)
+{
+	switch (node_kind(node)) {
+	case NODE_POS:
+		*data = d->pos;
+		*size = d->n * POS_SIZE;
+		return true;
+	case NODE_IDS:
+		*data = d->ids;
+		*size = d->n * sizeof(*d->ids);
+		return true;
+	case NODE_ENTITY_POS:
+		*data = d->pos[d->slots[node_id(node)]];
+		*size = POS_SIZE;
+		return true;
+	default:
+		return false;
+	}
+}
+
 /* Copy the part of a file of @size bytes at @src that a read asks for. */
 static ptrdiff_t read_range(const void *src, size_t size, void *buf, size_t len,
 			    uint64_t off)
@@ -277,21 +304,13 @@ static ptrdiff_t read_range(const void *src, size_t size, void *buf, size_t len,
 static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 			   size_t len, uint64_t off)
 {
-	const struct demo *d = priv;
-	uint32_t id = node_id(node);
+	void *data;
+	size_t size;
 
-	switch (node_kind(node)) {
-	case NODE_POS:
-		return read_range(d->pos, d->n * POS_SIZE, buf, len, off);
-	case NODE_IDS:
-		return read_range(d->ids, d->n * sizeof(*d->ids), buf, len,
-				  off);
-	case NODE_ENTITY_POS:
-		return read_range(d->pos[d->slots[id]], POS_SIZE, buf, len,
-				  off);
-	default:
+	if (!file_data(priv, node, &data, &size))
 		return -EISDIR;
-	}
+
+	return read_range(data, size, buf, len, off);
 }
 
 /*
@@ -313,20 +332,15 @@ static int write_range(void *dst, size_t size, const void *buf, size_t len,
 static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 		      size_t len, uint64_t off)
 {
-	struct demo *d = priv;
-	uint32_t id = node_id(node);
+	void *data;
+	size_t size;
 
-	switch (node_kind(node)) {
-	case NODE_POS:
-		return write_range(d->pos, d->n * POS_SIZE, buf, len, off);
-	case NODE_IDS:
+	if (node_kind(node) == NODE_IDS)
 		return -EACCES;
-	case NODE_ENTITY_POS:
-		return write_range(d->pos[d->slots[id]], POS_SIZE, buf, len,
-				   off);
-	default:
+	if (!file_data(priv, node, &data, &size))
 		return -EISDIR;
-	}
+
+	return write_range(data, size, buf, len, off);
 }
 
 static const struct nine_file_server_ops ops = {
