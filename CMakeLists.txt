@@ -43,6 +43,7 @@ else()
 endif()
 
 add_library(ninefold STATIC
+	src/dirs.c
 	src/handle.c
 	src/path.c
 	src/tree.c)

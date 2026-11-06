@@ -133,6 +133,61 @@ static void test_root_mount(void)
 	nine_tree_free(t);
 }
 
+/* Mount @r at @path in @t. Return: what nine_mount() returned. */
+static int mount_at(struct nine_tree *t, struct recorder *r, const char *path)
+{
+	return nine_mount(t, path, &r->ops, r);
+}
+
+/* A mount path may not be equal to, above or below another one. */
+static void test_conflicts(void)
+{
+	struct nine_tree *t;
+	struct nine_handle h;
+	struct recorder a, b;
+
+	recorder_init(&a);
+	recorder_init(&b);
+	t = nine_tree_new();
+	CHECK_PTR(t, !=, NULL);
+	CHECK_INT(mount_at(t, &a, "/a/rec"), ==, 0);
+
+	CHECK_INT(mount_at(t, &b, "/a/rec"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "//a/rec/"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "/a"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "/a/rec/x"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "/a/rec/x/y"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "/"), ==, -EBUSY);
+
+	/* A shared start is not a shared name. */
+	CHECK_INT(mount_at(t, &b, "/a/re"), ==, 0);
+	CHECK_INT(mount_at(t, &b, "/a/recx"), ==, 0);
+
+	/* A refused mount changed nothing. */
+	CHECK_INT(nine_open(nine_tree_ns(t), "/a/rec/x/y", NINE_RDONLY, &h), ==,
+		  0);
+	CHECK_UINT(a.ncalls, ==, 2);
+	CHECK_UINT(b.ncalls, ==, 0);
+	nine_tree_free(t);
+}
+
+/* A mount at the root must be the only mount. */
+static void test_root_mount_alone(void)
+{
+	struct nine_tree *t;
+	struct recorder a, b;
+
+	recorder_init(&a);
+	recorder_init(&b);
+	t = nine_tree_new();
+	CHECK_PTR(t, !=, NULL);
+	CHECK_INT(mount_at(t, &a, "/"), ==, 0);
+	CHECK_INT(mount_at(t, &b, "/b"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "/"), ==, -EBUSY);
+	CHECK_INT(mount_at(t, &b, "//"), ==, -EBUSY);
+	nine_tree_free(t);
+}
+
 int main(void)
 {
 	test_required_ops();
@@ -140,5 +195,7 @@ int main(void)
 	test_path_copied();
 	test_untidy_mount_path();
 	test_root_mount();
+	test_conflicts();
+	test_root_mount_alone();
 	return 0;
 }

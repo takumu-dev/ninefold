@@ -188,10 +188,16 @@ struct nine_ns *nine_tree_ns(struct nine_tree *t);
  * The tree does not copy @ops or @priv. Both must stay valid until
  * nine_tree_free() returns.
  *
+ * Mounts do not nest: no mount path is equal to, above or below another, so
+ * a mount at "/" is the only mount of its tree. The framework serves the
+ * directories above the mount points. Each lists the next name of the mount
+ * paths below it.
+ *
  * Context: No other call may use the tree at the same time.
  *
  * Return: 0, -EINVAL when @path is not a valid absolute path or a required
- * operation is NULL, or -ENOMEM.
+ * operation is NULL, -EBUSY when @path is equal to, above or below the path
+ * of a mount of the tree, or -ENOMEM.
  */
 int nine_mount(struct nine_tree *t, const char *path,
 	       const struct nine_file_server_ops *ops, void *priv);
@@ -216,6 +222,44 @@ int nine_mount(struct nine_tree *t, const char *path,
  */
 int nine_open(struct nine_ns *ns, const char *path, int mode,
 	      struct nine_handle *h);
+
+/**
+ * nine_list() - List the names in a directory through a handle.
+ * @dir: A handle to a directory, open for reading.
+ * @cursor: Where to go on from. It starts at 0, and each call moves it past
+ *	the names it returned. Only the file server knows what it means.
+ * @buf: Gets the names that fit, each with a NUL at its end.
+ * @len: The size of @buf in bytes.
+ *
+ * A loop of calls lists each name once, as long as the data does not change
+ * in between. A native change to the structure of the data between two
+ * calls can skip or repeat names. The list gives no kinds: nine_stat() does.
+ *
+ * Context: Any thread, at the same time as any call except a setup call on
+ * the handle's tree.
+ *
+ * Return: The number of names put in @buf, 0 at the end of the directory,
+ * -ERANGE when the next name does not fit in @buf, -EBADF for a handle that
+ * is not valid or not open for reading, or an error from the file server,
+ * such as -ENOTDIR for a file.
+ */
+int nine_list(const struct nine_handle *dir, uint64_t *cursor, char *buf,
+	      size_t len);
+
+/**
+ * nine_stat() - Describe a node through a handle.
+ * @h: A handle, open in any mode.
+ * @st: Gets the kind of the node, and the size of a file in bytes.
+ *
+ * The framework zeroes @st before the file server fills it in.
+ *
+ * Context: Any thread, at the same time as any call except a setup call on
+ * the handle's tree.
+ *
+ * Return: 0, -EBADF for a handle that is not valid, or an error from the
+ * file server.
+ */
+int nine_stat(const struct nine_handle *h, struct nine_stat *st);
 
 /**
  * nine_read() - Read from a file through a handle.

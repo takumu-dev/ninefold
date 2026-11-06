@@ -25,10 +25,20 @@ struct nine_ns {
 	struct nine_tree *tree;
 };
 
+/*
+ * struct nine_tree - A tree.
+ * @root: Its root namespace.
+ * @mounts: Its mounts, in the order they were made.
+ * @dirs: The file server of the directories above the mount points, which
+ *	no path in @mounts reaches. Its path is NULL.
+ */
 struct nine_tree {
 	struct nine_ns root;
 	struct nine_mount *mounts;
+	struct nine_mount dirs;
 };
+
+extern const struct nine_file_server_ops nine_dir_ops;
 
 const char *nine_path_next(const char *p, size_t *len);
 bool nine_path_valid(const char *path);
