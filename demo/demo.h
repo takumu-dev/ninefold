@@ -65,7 +65,33 @@ int demo_get_pos(const struct demo *d, uint32_t id, float pos[3]);
 /* demo_set_pos() - Set an entity's position. Return: 0 or -ENOENT. */
 int demo_set_pos(struct demo *d, uint32_t id, const float pos[3]);
 
+/*
+ * struct demo_column - The native arrays of an instance, for a plain C loop
+ * such as a benchmark's baseline.
+ * @pos: The positions, @n of them, in slot order.
+ * @slots: The slot of each live entity, indexed by its ID.
+ * @n: The number of live entities.
+ *
+ * The pointers stay valid until the next demo_create() or demo_destroy().
+ */
+struct demo_column {
+	float (*pos)[3];
+	const uint32_t *slots;
+	uint32_t n;
+};
+
+/* demo_get_column() - Get the native arrays of an instance in *@col. */
+void demo_get_column(struct demo *d, struct demo_column *col);
+
 /* demo_ops() - The operations to mount an instance with, as its priv. */
 const struct nine_file_server_ops *demo_ops(void);
+
+/*
+ * demo_variant_ops() - The operations of a second variant, to mount an
+ * instance with instead. They give the same results as demo_ops(), but
+ * their read is separate code, so that a benchmark can read through two
+ * file servers whose reads differ.
+ */
+const struct nine_file_server_ops *demo_variant_ops(void);
 
 #endif /* DEMO_H */

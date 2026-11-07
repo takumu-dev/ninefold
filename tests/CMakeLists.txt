@@ -31,6 +31,8 @@ ninefold_add_test(list)
 ninefold_add_test(dirs)
 ninefold_add_test(instances)
 ninefold_add_test(read_many)
+ninefold_add_test(variant)
+ninefold_add_test(column)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)
