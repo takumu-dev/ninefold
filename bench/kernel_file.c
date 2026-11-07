@@ -20,7 +20,7 @@ int kernel_file_make(struct kernel_file *kf, const void *data, size_t len)
 {
 	const char *dir = getenv("TMPDIR");
 	ssize_t n;
-	int fd, n_path;
+	int fd, n_path, err;
 
 	if (!dir || !*dir)
 		dir = "/tmp";
@@ -35,15 +35,16 @@ int kernel_file_make(struct kernel_file *kf, const void *data, size_t len)
 
 	n = write(fd, data, len);
 	if (n < 0 || (size_t)n != len) {
+		err = n < 0 ? -errno : -EIO;
 		close(fd);
 		unlink(kf->path);
-		return n < 0 ? -errno : -EIO;
+		return err;
 	}
 	close(fd);
 	return 0;
 }
 
-int kernel_file_read(const struct kernel_file *kf, void *buf, size_t len)
+ptrdiff_t kernel_file_read(const struct kernel_file *kf, void *buf, size_t len)
 {
 	ssize_t n;
 	int fd;
@@ -56,7 +57,7 @@ int kernel_file_read(const struct kernel_file *kf, void *buf, size_t len)
 	if (n < 0)
 		n = -errno;
 	close(fd);
-	return (int)n;
+	return n;
 }
 
 void kernel_file_remove(const struct kernel_file *kf)
@@ -74,7 +75,7 @@ int kernel_file_make(struct kernel_file *kf, const void *data, size_t len)
 	return -ENOTSUP;
 }
 
-int kernel_file_read(const struct kernel_file *kf, void *buf, size_t len)
+ptrdiff_t kernel_file_read(const struct kernel_file *kf, void *buf, size_t len)
 {
 	(void)kf;
 	(void)buf;

@@ -527,8 +527,9 @@ const struct nine_file_server_ops *demo_ops(void)
 }
 
 /*
- * The read of the second variant. It is written apart from demo_read() and
- * shares none of its helpers, so the two variants run different read code.
+ * The read of the second variant. It is written apart from demo_read(), and
+ * shares only the stale check and the node accessors with it, so the two
+ * variants run different read code.
  */
 static ptrdiff_t variant_read(void *priv, const struct nine_node *node,
 			      void *buf, size_t len, uint64_t off)

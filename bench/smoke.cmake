@@ -1,6 +1,7 @@
 # The smoke test of the benchmark: it runs PROGRAM for one batch, and passes
-# when the program exits with 0 and prints a row for each measurement. It
-# never judges the timings.
+# when the program exits with 0, prints nothing on stderr, and prints a row
+# for each measurement. It never judges the timings. The benchmark always
+# exits with 0, and reports a failure to set up or a wrong read on stderr.
 #
 #	cmake -DPROGRAM=<path> -P smoke.cmake
 
@@ -33,6 +34,9 @@ execute_process(COMMAND ${PROGRAM} 1
 message("${output}${errors}")
 if(NOT result EQUAL 0)
 	message(FATAL_ERROR "The benchmark exited with ${result}")
+endif()
+if(NOT errors STREQUAL "")
+	message(FATAL_ERROR "The benchmark reported an error")
 endif()
 
 string(REPLACE "\r\n" "\n" output "\n${output}")

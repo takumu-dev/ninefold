@@ -29,7 +29,7 @@ int kernel_file_make(struct kernel_file *kf, const void *data, size_t len);
  *
  * Return: The number of bytes read, or a negative error code.
  */
-int kernel_file_read(const struct kernel_file *kf, void *buf, size_t len);
+ptrdiff_t kernel_file_read(const struct kernel_file *kf, void *buf, size_t len);
 
 /* kernel_file_remove() - Remove the file that kernel_file_make() made. */
 void kernel_file_remove(const struct kernel_file *kf);

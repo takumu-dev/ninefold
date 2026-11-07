@@ -18,8 +18,8 @@
  * gets to consume(), which writes to a volatile variable, so that the
  * compiler keeps the work.
  *
- * The exit code is 0 whatever the timings. It is 1 only when the benchmark
- * cannot set up, or when a read gets the wrong values.
+ * The exit code is always 0, as the benchmark is not a test. When it cannot
+ * set up, or a read gets the wrong values, it says so on stderr.
  */
 #include <errno.h>
 #include <stdbool.h>
@@ -75,8 +75,8 @@ struct bench {
 	/* The column of the demo at /world, and its bulk pos file. */
 	struct demo_column col;
 	struct nine_handle bulk;
-	/* The values of the column, in slot order. */
-	float (*column)[3];
+	/* The values the column starts with, in slot order. */
+	float (*start)[3];
 	/* NOPS values, for the batched and bulk reads. */
 	float (*buf)[3];
 	int *errs;
@@ -108,16 +108,22 @@ static void baseline_write(struct bench *b, const struct order *o)
 		memcpy(pos[slots[o->ids[i]]], o->vals[i], POS_SIZE);
 }
 
-static void handle_read(struct bench *b, const struct order *o)
+/* Read the NOPS handles at @hs in turn. */
+static void read_each(const struct nine_handle *hs)
 {
 	float v[3] = { 0 };
 	size_t i;
 
-	(void)b;
 	for (i = 0; i < NOPS; i++) {
-		nine_read(&o->hs[i], v, POS_SIZE, 0);
+		nine_read(&hs[i], v, POS_SIZE, 0);
 		consume(v);
 	}
+}
+
+static void handle_read(struct bench *b, const struct order *o)
+{
+	(void)b;
+	read_each(o->hs);
 }
 
 static void handle_write(struct bench *b, const struct order *o)
@@ -140,14 +146,8 @@ static void batched_read(struct bench *b, const struct order *o)
 
 static void alternating_read(struct bench *b, const struct order *o)
 {
-	float v[3] = { 0 };
-	size_t i;
-
 	(void)b;
-	for (i = 0; i < NOPS; i++) {
-		nine_read(&o->alt[i], v, POS_SIZE, 0);
-		consume(v);
-	}
+	read_each(o->alt);
 }
 
 static void path_lookup(struct bench *b, const struct order *o)
@@ -173,7 +173,7 @@ static void memcpy_out(struct bench *b, const struct order *o)
 static void memcpy_in(struct bench *b, const struct order *o)
 {
 	(void)o;
-	memcpy(b->col.pos, b->column, NOPS * POS_SIZE);
+	memcpy(b->col.pos, b->start, NOPS * POS_SIZE);
 }
 
 static void bulk_read(struct bench *b, const struct order *o)
@@ -186,7 +186,7 @@ static void bulk_read(struct bench *b, const struct order *o)
 static void bulk_write(struct bench *b, const struct order *o)
 {
 	(void)o;
-	nine_write(&b->bulk, b->column, NOPS * POS_SIZE, 0);
+	nine_write(&b->bulk, b->start, NOPS * POS_SIZE, 0);
 }
 
 static void kernel_file(struct bench *b, const struct order *o)
@@ -325,7 +325,7 @@ static void print_row(const struct row *row, const char *order, double ns,
 
 static void run_rows(struct bench *b, int64_t *times, int nbatches)
 {
-	double ns[NROWS][NORDERS] = { { 0 } };
+	double per_op[NROWS][NORDERS] = { { 0 } };
 	const struct row *row;
 	int r, k, norders, ref_k;
 
@@ -339,11 +339,11 @@ static void run_rows(struct bench *b, int64_t *times, int nbatches)
 
 		norders = row->ordered ? NORDERS : 1;
 		for (k = 0; k < norders; k++) {
-			ns[r][k] =
+			per_op[r][k] =
 				time_row(b, row, b->orders[k], times, nbatches);
 			ref_k = rows[row->ref].ordered ? k : 0;
 			print_row(row, row->ordered ? order_names[k] : "-",
-				  ns[r][k], ns[row->ref][ref_k]);
+				  per_op[r][k], per_op[row->ref][ref_k]);
 		}
 	}
 }
@@ -470,10 +470,10 @@ static int bench_init(struct bench *b)
 	int err, k;
 
 	memset(b, 0, sizeof(*b));
-	b->column = malloc(NOPS * POS_SIZE);
+	b->start = malloc(NOPS * POS_SIZE);
 	b->buf = malloc(NOPS * POS_SIZE);
 	b->errs = malloc(NOPS * sizeof(*b->errs));
-	if (!b->column || !b->buf || !b->errs)
+	if (!b->start || !b->buf || !b->errs)
 		return fail("setup", -ENOMEM);
 	for (k = 0; k < NORDERS; k++) {
 		b->orders[k] = malloc(sizeof(*b->orders[k]));
@@ -484,7 +484,7 @@ static int bench_init(struct bench *b)
 	err = make_tree(b);
 	if (err)
 		return err;
-	memcpy(b->column, b->col.pos, NOPS * POS_SIZE);
+	memcpy(b->start, b->col.pos, NOPS * POS_SIZE);
 
 	for (k = 0; k < NORDERS; k++) {
 		err = fill_order(b, b->orders[k], k > 0);
@@ -492,7 +492,7 @@ static int bench_init(struct bench *b)
 			return err;
 	}
 
-	err = kernel_file_make(&b->kf, b->column[0], POS_SIZE);
+	err = kernel_file_make(&b->kf, b->start[0], POS_SIZE);
 	if (err == -ENOTSUP)
 		return 0;
 	if (err)
@@ -511,7 +511,7 @@ static void bench_free(struct bench *b)
 		free(b->orders[k]);
 	free(b->errs);
 	free(b->buf);
-	free(b->column);
+	free(b->start);
 	nine_tree_free(b->t);
 	demo_free(b->variant);
 	demo_free(b->world);
@@ -569,12 +569,12 @@ static bool check_reads(struct bench *b)
 	memset(b->buf, 0, NOPS * POS_SIZE);
 	if (nine_read(&b->bulk, b->buf, NOPS * POS_SIZE, 0) !=
 		    (ptrdiff_t)(NOPS * POS_SIZE) ||
-	    memcmp(b->buf, b->column, NOPS * POS_SIZE))
+	    memcmp(b->buf, b->start, NOPS * POS_SIZE))
 		return misread("bulk read");
 
 	if (b->has_kf &&
-	    (kernel_file_read(&b->kf, v, POS_SIZE) != (int)POS_SIZE ||
-	     memcmp(v, b->column[0], POS_SIZE)))
+	    (kernel_file_read(&b->kf, v, POS_SIZE) != (ptrdiff_t)POS_SIZE ||
+	     memcmp(v, b->start[0], POS_SIZE)))
 		return misread("kernel file");
 	return true;
 }
@@ -596,7 +596,6 @@ static bool parse_batches(const char *arg, int *nbatches)
 int main(int argc, char **argv)
 {
 	int nbatches = DEFAULT_BATCHES;
-	int ret = EXIT_FAILURE;
 	int64_t *times = NULL;
 	struct bench b;
 
@@ -605,7 +604,7 @@ int main(int argc, char **argv)
 			"usage: ninefold_bench [batches]\n"
 			"batches: 1 to %d, %d by default\n",
 			MAX_BATCHES, DEFAULT_BATCHES);
-		return EXIT_FAILURE;
+		return 0;
 	}
 
 	if (bench_init(&b) || !check_reads(&b))
@@ -618,10 +617,9 @@ int main(int argc, char **argv)
 
 	print_header(nbatches);
 	run_rows(&b, times, nbatches);
-	if (check_reads(&b))
-		ret = 0;
+	check_reads(&b);
 out:
 	free(times);
 	bench_free(&b);
-	return ret;
+	return 0;
 }
