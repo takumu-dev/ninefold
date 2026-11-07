@@ -413,15 +413,25 @@ static ptrdiff_t read_range(const void *src, size_t size, void *buf, size_t len,
 	return (ptrdiff_t)len;
 }
 
+/*
+ * Most reads take an entity's whole position. They copy it at a fixed size,
+ * which the compiler inlines, so the common read stays short. Every other read
+ * takes the general path.
+ */
 static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 			   size_t len, uint64_t off)
 {
+	const struct demo *d = priv;
 	void *data;
 	size_t size;
 
-	if (is_stale(priv, node))
+	if (is_stale(d, node))
 		return -ESTALE;
-	if (!file_data(priv, node, &data, &size))
+	if (node_kind(node) == NODE_ENTITY_POS && off == 0 && len >= POS_SIZE) {
+		memcpy(buf, d->pos[d->slots[node_id(node)]], POS_SIZE);
+		return (ptrdiff_t)POS_SIZE;
+	}
+	if (!file_data(d, node, &data, &size))
 		return -EISDIR;
 
 	return read_range(data, size, buf, len, off);
@@ -529,7 +539,8 @@ const struct nine_file_server_ops *demo_ops(void)
 /*
  * The read of the second variant. It is written apart from demo_read(), and
  * shares only the stale check and the node accessors with it, so the two
- * variants run different read code.
+ * variants run different read code. Like demo_read(), it copies a whole
+ * position at a fixed size.
  */
 static ptrdiff_t variant_read(void *priv, const struct nine_node *node,
 			      void *buf, size_t len, uint64_t off)
@@ -544,6 +555,10 @@ static ptrdiff_t variant_read(void *priv, const struct nine_node *node,
 	switch (node_kind(node)) {
 	case NODE_ENTITY_POS:
 		src = (const char *)d->pos[d->slots[node_id(node)]];
+		if (!off && len >= POS_SIZE) {
+			memcpy(buf, src, POS_SIZE);
+			return (ptrdiff_t)POS_SIZE;
+		}
 		size = POS_SIZE;
 		break;
 	case NODE_POS:

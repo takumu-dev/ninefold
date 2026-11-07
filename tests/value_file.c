@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
+#include <errno.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "ninefold.h"
 
@@ -8,18 +10,25 @@
 
 #define NENTITIES 5
 
-static ptrdiff_t read_entity_pos(struct nine_ns *ns, uint32_t id, void *buf,
-				 size_t len, uint64_t off)
+static void open_entity_pos(struct nine_ns *ns, uint32_t id,
+			    struct nine_handle *h)
 {
-	struct nine_handle h;
 	char path[64];
 	int err;
 
 	snprintf(path, sizeof(path),
 		 "/world/entities/%lu/components/transform/pos",
 		 (unsigned long)id);
-	err = nine_open(ns, path, NINE_RDONLY, &h);
+	err = nine_open(ns, path, NINE_RDONLY, h);
 	CHECK_INT(err, ==, 0);
+}
+
+static ptrdiff_t read_entity_pos(struct nine_ns *ns, uint32_t id, void *buf,
+				 size_t len, uint64_t off)
+{
+	struct nine_handle h;
+
+	open_entity_pos(ns, id, &h);
 	return nine_read(&h, buf, len, off);
 }
 
@@ -99,9 +108,66 @@ static void test_read_counts(void)
 	demo_free(d);
 }
 
+/* A read of the whole value into a longer buffer fills only the value's bytes. */
+static void test_whole_value_buffer(void)
+{
+	static const float pos[3] = { 1.5f, -2.0f, 4.25f };
+	unsigned char buf[32], fill[32];
+	struct nine_tree *t;
+	struct demo *d;
+	uint32_t id;
+
+	t = nine_tree_new();
+	d = demo_new();
+	CHECK_PTR(t, !=, NULL);
+	CHECK_PTR(d, !=, NULL);
+	CHECK_INT(demo_create(d, &id), ==, 0);
+	CHECK_INT(demo_set_pos(d, id, pos), ==, 0);
+	CHECK_INT(nine_mount(t, "/world", demo_ops(), d), ==, 0);
+
+	memset(fill, 0xa5, sizeof(fill));
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(read_entity_pos(nine_tree_ns(t), id, buf, sizeof(buf), 0), ==,
+		  12);
+	CHECK_MEM(buf, pos, 12);
+	CHECK_MEM(buf + 12, fill, sizeof(buf) - 12);
+
+	nine_tree_free(t);
+	demo_free(d);
+}
+
+/* A read through a stale node fails and copies nothing. */
+static void test_stale_read(void)
+{
+	unsigned char buf[32], fill[32];
+	struct nine_tree *t;
+	struct nine_handle h;
+	struct demo *d;
+	uint32_t id;
+
+	t = nine_tree_new();
+	d = demo_new();
+	CHECK_PTR(t, !=, NULL);
+	CHECK_PTR(d, !=, NULL);
+	CHECK_INT(demo_create(d, &id), ==, 0);
+	CHECK_INT(nine_mount(t, "/world", demo_ops(), d), ==, 0);
+	open_entity_pos(nine_tree_ns(t), id, &h);
+	CHECK_INT(demo_destroy(d, id), ==, 0);
+
+	memset(fill, 0xa5, sizeof(fill));
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(nine_read(&h, buf, sizeof(buf), 0), ==, -ESTALE);
+	CHECK_MEM(buf, fill, sizeof(buf));
+
+	nine_tree_free(t);
+	demo_free(d);
+}
+
 int main(void)
 {
 	test_reads_native_positions();
 	test_read_counts();
+	test_whole_value_buffer();
+	test_stale_read();
 	return 0;
 }

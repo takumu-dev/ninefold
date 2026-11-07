@@ -94,6 +94,45 @@ static void test_value_file(void)
 	world_free(&w);
 }
 
+/*
+ * A read of the whole value into a longer buffer fills only the value's bytes,
+ * and a buffer shorter than the value gets the start of it.
+ */
+static void test_value_buffer_sizes(void)
+{
+	unsigned char buf[32], fill[32];
+	struct nine_handle h;
+	struct world w;
+	float want[3];
+
+	world_init(&w);
+	open_value(&w, w.ids[3], &h);
+	start_pos(3, want);
+	memset(fill, 0xa5, sizeof(fill));
+
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(nine_read(&h, buf, sizeof(buf), 0), ==, (ptrdiff_t)POS_SIZE);
+	CHECK_MEM(buf, want, POS_SIZE);
+	CHECK_MEM(buf + POS_SIZE, fill, sizeof(buf) - POS_SIZE);
+
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(nine_read(&h, buf, POS_SIZE - 1, 0), ==,
+		  (ptrdiff_t)(POS_SIZE - 1));
+	CHECK_MEM(buf, want, POS_SIZE - 1);
+	CHECK_MEM(buf + POS_SIZE - 1, fill, sizeof(buf) - (POS_SIZE - 1));
+
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(nine_read(&h, buf, sizeof(float), sizeof(float)), ==,
+		  (ptrdiff_t)sizeof(float));
+	CHECK_MEM(buf, &want[1], sizeof(float));
+	CHECK_MEM(buf + sizeof(float), fill, sizeof(buf) - sizeof(float));
+
+	memcpy(buf, fill, sizeof(buf));
+	CHECK_INT(nine_read(&h, buf, 0, 0), ==, 0);
+	CHECK_MEM(buf, fill, sizeof(buf));
+	world_free(&w);
+}
+
 /* The variant's bulk files are the column and the IDs, in slot order. */
 static void test_bulk_files(void)
 {
@@ -124,11 +163,14 @@ static void test_bulk_files(void)
 	world_free(&w);
 }
 
-/* A directory fails as with the first variant, and so does a stale node. */
+/*
+ * A directory fails as with the first variant, and so does a stale node,
+ * which copies nothing.
+ */
 static void test_errors(void)
 {
 	struct nine_handle dir, entity, value;
-	unsigned char buf[POS_SIZE];
+	unsigned char buf[POS_SIZE], fill[POS_SIZE];
 	struct world w;
 
 	world_init(&w);
@@ -140,13 +182,17 @@ static void test_errors(void)
 	open_value(&w, w.ids[2], &value);
 	CHECK_INT(demo_destroy(w.d, w.ids[2]), ==, 0);
 	CHECK_INT(nine_read(&entity, buf, sizeof(buf), 0), ==, -ESTALE);
+	memset(fill, 0xa5, sizeof(fill));
+	memcpy(buf, fill, sizeof(buf));
 	CHECK_INT(nine_read(&value, buf, sizeof(buf), 0), ==, -ESTALE);
+	CHECK_MEM(buf, fill, sizeof(buf));
 	world_free(&w);
 }
 
 int main(void)
 {
 	test_value_file();
+	test_value_buffer_sizes();
 	test_bulk_files();
 	test_errors();
 	return 0;
