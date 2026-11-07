@@ -67,6 +67,10 @@ if(NINEFOLD_BUILD_TESTS)
 	add_subdirectory(tests)
 endif()
 
+if(NINEFOLD_BUILD_BENCH)
+	add_subdirectory(bench)
+endif()
+
 if(NINEFOLD_INSTALL)
 	include(GNUInstallDirs)
 	include(CMakePackageConfigHelpers)

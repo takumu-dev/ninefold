@@ -59,6 +59,13 @@ To see a tree, run the demo program, `ninefold_walk` in
 entities with positions, then walks the tree from `/` and prints each
 node's path, kind and size, and the bytes of each file.
 
+To time the tree, run the benchmark, `ninefold_bench` in
+`build/<preset>/bench`, from a release preset. It times batches of 10,000
+reads and writes through handles, paths and bulk files, and compares each
+with a plain C loop over the same data or with `memcpy` of the same bytes.
+A result over its limit is marked `OVER`. The only argument is the number
+of batches, 51 by default. The timings mean little in other builds.
+
 ## Using it in your project
 
 Ninefold builds as a static library with one public header,
