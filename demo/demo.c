@@ -506,16 +506,31 @@ static int read_value(const struct demo *d, const struct nine_node *node,
 	return 0;
 }
 
+/*
+ * A batch of positions copies each at a fixed size, which the compiler
+ * inlines, so it makes no call for each value. Every other value, and a
+ * stale node, takes read_value().
+ */
 static int demo_read_many(void *priv, const struct nine_handle *hs, size_t n,
 			  void *buf, size_t size, int *errs)
 {
+	const struct demo *d = priv;
+	const struct nine_node *node;
 	char *p = buf;
 	size_t i;
 	int ret = 0;
 
 	for (i = 0; i < n; i++) {
-		errs[i] = read_value(priv, nine_handle_node(&hs[i]),
-				     p + i * size, size);
+		node = nine_handle_node(&hs[i]);
+		if (size == POS_SIZE && node_kind(node) == NODE_ENTITY_POS &&
+		    !is_stale(d, node)) {
+			memcpy(p + i * size, d->pos[d->slots[node_id(node)]],
+			       POS_SIZE);
+			errs[i] = 0;
+			continue;
+		}
+
+		errs[i] = read_value(d, node, p + i * size, size);
 		if (!ret)
 			ret = errs[i];
 	}

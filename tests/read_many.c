@@ -380,9 +380,47 @@ static void test_wrong_size(const struct nine_file_server_ops *ops)
 	world_free(&w);
 }
 
+/*
+ * A file of the size asked for that is not an entity's position reads
+ * whole, as a read of it would: ids, once 3 entities are left, is as long
+ * as a position.
+ */
+static void test_other_file_of_same_size(const struct nine_file_server_ops *ops)
+{
+	struct world w;
+	unsigned char got[4][POS_SIZE], ids[POS_SIZE + 4];
+	float want[3];
+	int errs[4];
+	int i;
+
+	world_init(&w, ops);
+	for (i = 3; i < NENTITIES; i++)
+		CHECK_INT(demo_destroy(w.d, w.ids[i]), ==, 0);
+	CHECK_INT(nine_open(w.ns, "/world/components/transform/ids",
+			    NINE_RDONLY, &w.hs[3]),
+		  ==, 0);
+	w.hs[1] = w.hs[3];
+	CHECK_INT(nine_read(&w.hs[3], ids, sizeof(ids), 0), ==,
+		  (ptrdiff_t)POS_SIZE);
+
+	memset(got, 0xa5, sizeof(got));
+	CHECK_INT(nine_read_many(w.hs, 4, got, POS_SIZE, errs), ==, 0);
+	for (i = 0; i < 4; i++)
+		CHECK_INT(errs[i], ==, 0);
+	start_pos(0, want);
+	CHECK_MEM(got[0], want, POS_SIZE);
+	start_pos(2, want);
+	CHECK_MEM(got[2], want, POS_SIZE);
+	CHECK_MEM(got[1], ids, POS_SIZE);
+	CHECK_MEM(got[3], ids, POS_SIZE);
+
+	world_free(&w);
+}
+
 static void run_demo_tests(const struct nine_file_server_ops *ops)
 {
 	test_directory_item(ops);
+	test_other_file_of_same_size(ops);
 	test_same_bytes_as_single_reads(ops);
 	test_destroyed_entity(ops);
 	test_first_error_returned(ops);
