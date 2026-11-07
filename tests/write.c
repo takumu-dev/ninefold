@@ -138,6 +138,7 @@ static void test_write_past_end(void)
 	open_pos(&w, NINE_WRONLY, &h);
 
 	CHECK_INT(nine_write(&h, buf, 13, 0), ==, -EINVAL);
+	CHECK_INT(nine_write(&h, buf, 12, 4), ==, -EINVAL);
 	CHECK_INT(nine_write(&h, buf, 8, 8), ==, -EINVAL);
 	CHECK_INT(nine_write(&h, buf, 1, 12), ==, -EINVAL);
 	CHECK_INT(nine_write(&h, buf, 0, 13), ==, -EINVAL);

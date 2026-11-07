@@ -453,17 +453,27 @@ static int write_range(void *dst, size_t size, const void *buf, size_t len,
 	return 0;
 }
 
+/*
+ * Most writes set an entity's whole position. Like demo_read(), they copy it
+ * at a fixed size, which the compiler inlines. Every other write takes the
+ * general path.
+ */
 static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 		      size_t len, uint64_t off)
 {
+	struct demo *d = priv;
 	void *data;
 	size_t size;
 
-	if (is_stale(priv, node))
+	if (is_stale(d, node))
 		return -ESTALE;
+	if (node_kind(node) == NODE_ENTITY_POS && off == 0 && len == POS_SIZE) {
+		memcpy(d->pos[d->slots[node_id(node)]], buf, POS_SIZE);
+		return 0;
+	}
 	if (node_kind(node) == NODE_IDS)
 		return -EACCES;
-	if (!file_data(priv, node, &data, &size))
+	if (!file_data(d, node, &data, &size))
 		return -EISDIR;
 
 	return write_range(data, size, buf, len, off);
@@ -506,16 +516,31 @@ static int read_value(const struct demo *d, const struct nine_node *node,
 	return 0;
 }
 
+/*
+ * A batch of positions copies each at a fixed size, which the compiler
+ * inlines, so it makes no call for each value. Every other value, and a
+ * stale node, takes read_value().
+ */
 static int demo_read_many(void *priv, const struct nine_handle *hs, size_t n,
 			  void *buf, size_t size, int *errs)
 {
+	const struct demo *d = priv;
+	const struct nine_node *node;
 	char *p = buf;
 	size_t i;
 	int ret = 0;
 
 	for (i = 0; i < n; i++) {
-		errs[i] = read_value(priv, nine_handle_node(&hs[i]),
-				     p + i * size, size);
+		node = nine_handle_node(&hs[i]);
+		if (size == POS_SIZE && node_kind(node) == NODE_ENTITY_POS &&
+		    !is_stale(d, node)) {
+			memcpy(p + i * size, d->pos[d->slots[node_id(node)]],
+			       POS_SIZE);
+			errs[i] = 0;
+			continue;
+		}
+
+		errs[i] = read_value(d, node, p + i * size, size);
 		if (!ret)
 			ret = errs[i];
 	}
