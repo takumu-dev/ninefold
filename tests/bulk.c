@@ -241,6 +241,7 @@ static void test_write_ids(void)
 	open_bulk(&w, "ids", NINE_RDWR, &h);
 	CHECK_INT(nine_write(&h, w.ids, sizeof(w.ids), 0), ==, -EACCES);
 	CHECK_INT(nine_write(&h, &w.ids[1], sizeof(w.ids[1]), 0), ==, -EACCES);
+	CHECK_INT(nine_write(&h, w.ids, 3 * sizeof(w.ids[0]), 0), ==, -EACCES);
 	CHECK_INT(nine_write(&h, w.ids, 0, 0), ==, -EACCES);
 
 	CHECK_INT(nine_read(&h, got, sizeof(got), 0), ==,

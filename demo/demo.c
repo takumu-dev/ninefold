@@ -453,17 +453,27 @@ static int write_range(void *dst, size_t size, const void *buf, size_t len,
 	return 0;
 }
 
+/*
+ * Most writes set an entity's whole position. Like demo_read(), they copy it
+ * at a fixed size, which the compiler inlines. Every other write takes the
+ * general path.
+ */
 static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 		      size_t len, uint64_t off)
 {
+	struct demo *d = priv;
 	void *data;
 	size_t size;
 
-	if (is_stale(priv, node))
+	if (is_stale(d, node))
 		return -ESTALE;
+	if (node_kind(node) == NODE_ENTITY_POS && off == 0 && len == POS_SIZE) {
+		memcpy(d->pos[d->slots[node_id(node)]], buf, POS_SIZE);
+		return 0;
+	}
 	if (node_kind(node) == NODE_IDS)
 		return -EACCES;
-	if (!file_data(priv, node, &data, &size))
+	if (!file_data(d, node, &data, &size))
 		return -EISDIR;
 
 	return write_range(data, size, buf, len, off);
