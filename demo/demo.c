@@ -195,6 +195,13 @@ int demo_set_pos(struct demo *d, uint32_t id, const float pos[3])
 	return 0;
 }
 
+void demo_get_column(struct demo *d, struct demo_column *col)
+{
+	col->pos = d->pos;
+	col->slots = d->slots;
+	col->n = d->n;
+}
+
 /* Parse a decimal ID in canonical form: digits only, no leading zero. */
 static bool parse_id(const char *name, size_t len, uint32_t *id)
 {
@@ -517,4 +524,59 @@ static const struct nine_file_server_ops ops = {
 const struct nine_file_server_ops *demo_ops(void)
 {
 	return &ops;
+}
+
+/*
+ * The read of the second variant. It is written apart from demo_read(), and
+ * shares only the stale check and the node accessors with it, so the two
+ * variants run different read code.
+ */
+static ptrdiff_t variant_read(void *priv, const struct nine_node *node,
+			      void *buf, size_t len, uint64_t off)
+{
+	const struct demo *d = priv;
+	const char *src;
+	size_t size;
+
+	if (is_stale(d, node))
+		return -ESTALE;
+
+	switch (node_kind(node)) {
+	case NODE_ENTITY_POS:
+		src = (const char *)d->pos[d->slots[node_id(node)]];
+		size = POS_SIZE;
+		break;
+	case NODE_POS:
+		src = (const char *)d->pos;
+		size = d->n * POS_SIZE;
+		break;
+	case NODE_IDS:
+		src = (const char *)d->ids;
+		size = d->n * sizeof(*d->ids);
+		break;
+	default:
+		return -EISDIR;
+	}
+
+	if (off >= size)
+		return 0;
+	size -= (size_t)off;
+	if (size > len)
+		size = len;
+	memcpy(buf, src + off, size);
+	return (ptrdiff_t)size;
+}
+
+static const struct nine_file_server_ops variant_ops = {
+	.lookup = demo_lookup,
+	.list = demo_list,
+	.stat = demo_stat,
+	.read = variant_read,
+	.write = demo_write,
+	.read_many = demo_read_many,
+};
+
+const struct nine_file_server_ops *demo_variant_ops(void)
+{
+	return &variant_ops;
 }
