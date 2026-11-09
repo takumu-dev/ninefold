@@ -12,8 +12,24 @@
 #define POS_SIZE (3 * sizeof(float))
 
 /*
- * The column is dense: slot i < n holds the position of the entity ids[i].
- * An ID finds its slot through slots[], and gens[] holds its generation.
+ * The columns of an entity. To add one, add it here and in column_sizes[],
+ * and add its nodes to fixed_names[]. The code below handles it from there.
+ */
+enum column {
+	COLUMN_POS,
+	NCOLUMNS,
+};
+
+/* The size in bytes of one value of each column. */
+static const size_t column_sizes[NCOLUMNS] = {
+	[COLUMN_POS] = POS_SIZE,
+};
+
+/*
+ * The columns are dense and share one entity order: slot i < n of each column
+ * holds the value of the entity ids[i], and growth and swap-remove move every
+ * column together. An ID finds its slot through slots[], and gens[] holds its
+ * generation.
  *
  * Past the live entities, ids[n] to ids[nids - 1] hold the free IDs, each
  * with its index in slots[] too. Destroying an entity swaps its ID with the
@@ -21,7 +37,7 @@
  * the first free ID before it makes a new one.
  */
 struct demo {
-	float (*pos)[3];
+	void *columns[NCOLUMNS];
 	uint32_t *ids;
 	uint32_t *slots;
 	uint32_t *gens;
@@ -31,28 +47,30 @@ struct demo {
 };
 
 /*
- * A node value holds the node kind in the low half of w[0], the entity's
- * generation in the high half, and the entity ID in w[1]. w[2] stays zero.
- * The root, all zeros, has kind NODE_ROOT. The nodes outside entities/ belong
- * to no entity, so their ID and generation stay zero.
+ * A node value holds the node kind in the low 16 bits of w[0], the column of
+ * a column's node in the next 16, the entity's generation in the high half,
+ * and the entity ID in w[1]. w[2] stays zero. The root, all zeros, has kind
+ * NODE_ROOT. The nodes outside entities/ belong to no entity, so their ID and
+ * generation stay zero, and the column of a node that is not a column's stays
+ * zero too.
  */
 enum node_kind {
 	NODE_ROOT,
 	NODE_COMPONENTS,
 	NODE_TRANSFORM,
-	NODE_POS,
+	NODE_COLUMN,
 	NODE_IDS,
 	NODE_ENTITIES,
 	/* The nodes from here on belong to an entity. */
 	NODE_ENTITY,
 	NODE_ENTITY_COMPONENTS,
 	NODE_ENTITY_TRANSFORM,
-	NODE_ENTITY_POS,
+	NODE_ENTITY_COLUMN,
 };
 
 static enum node_kind node_kind(const struct nine_node *node)
 {
-	return (enum node_kind)(node->w[0] & 0xffffffff);
+	return (enum node_kind)(node->w[0] & 0xffff);
 }
 
 static uint32_t node_gen(const struct nine_node *node)
@@ -65,12 +83,38 @@ static uint32_t node_id(const struct nine_node *node)
 	return (uint32_t)node->w[1];
 }
 
-static void make_node(struct nine_node *node, enum node_kind kind, uint32_t id,
-		      uint32_t gen)
+static enum column node_column(const struct nine_node *node)
 {
-	node->w[0] = (uint64_t)gen << 32 | (uint64_t)kind;
+	return (enum column)(node->w[0] >> 16 & 0xffff);
+}
+
+/* The kind and the column share a word, so this takes one comparison. */
+static bool is_entity_pos(const struct nine_node *node)
+{
+	return (node->w[0] & 0xffffffff) ==
+	       ((uint64_t)COLUMN_POS << 16 | NODE_ENTITY_COLUMN);
+}
+
+static void make_node(struct nine_node *node, enum node_kind kind, uint32_t id,
+		      uint32_t gen, enum column column)
+{
+	node->w[0] =
+		(uint64_t)gen << 32 | (uint64_t)column << 16 | (uint64_t)kind;
 	node->w[1] = id;
 	node->w[2] = 0;
+}
+
+/* The value of column @c in @slot. */
+static void *column_value(const struct demo *d, enum column c, uint32_t slot)
+{
+	return (char *)d->columns[c] + slot * column_sizes[c];
+}
+
+/* The value of column @c of the live entity that @node belongs to. */
+static void *entity_value(const struct demo *d, const struct nine_node *node,
+			  enum column c)
+{
+	return column_value(d, c, d->slots[node_id(node)]);
 }
 
 struct demo *demo_new(void)
@@ -80,10 +124,13 @@ struct demo *demo_new(void)
 
 void demo_free(struct demo *d)
 {
+	enum column c;
+
 	if (!d)
 		return;
 
-	free(d->pos);
+	for (c = 0; c < NCOLUMNS; c++)
+		free(d->columns[c]);
 	free(d->ids);
 	free(d->slots);
 	free(d->gens);
@@ -91,19 +138,22 @@ void demo_free(struct demo *d)
 }
 
 /*
- * Grow every array by reallocation, so the column's memory really moves. An
+ * Grow every array by reallocation, so the columns' memory really moves. An
  * array that grew before a failure keeps its new size, which does no harm.
  */
 static int grow(struct demo *d)
 {
 	uint32_t cap = d->cap ? 2 * d->cap : 4;
-	float (*pos)[3];
 	uint32_t *ids, *slots, *gens;
+	enum column c;
+	void *data;
 
-	pos = realloc(d->pos, cap * sizeof(*pos));
-	if (!pos)
-		return -ENOMEM;
-	d->pos = pos;
+	for (c = 0; c < NCOLUMNS; c++) {
+		data = realloc(d->columns[c], cap * column_sizes[c]);
+		if (!data)
+			return -ENOMEM;
+		d->columns[c] = data;
+	}
 
 	ids = realloc(d->ids, cap * sizeof(*ids));
 	if (!ids)
@@ -126,6 +176,7 @@ static int grow(struct demo *d)
 
 int demo_create(struct demo *d, uint32_t *id)
 {
+	enum column c;
 	int err;
 
 	if (d->n == d->cap) {
@@ -140,7 +191,8 @@ int demo_create(struct demo *d, uint32_t *id)
 		d->ids[d->n] = d->nids++;
 	}
 	*id = d->ids[d->n];
-	memset(d->pos[d->n], 0, POS_SIZE);
+	for (c = 0; c < NCOLUMNS; c++)
+		memset(column_value(d, c, d->n), 0, column_sizes[c]);
 	d->n++;
 	return 0;
 }
@@ -164,13 +216,18 @@ static void swap_ids(struct demo *d, uint32_t i, uint32_t j)
 int demo_destroy(struct demo *d, uint32_t id)
 {
 	uint32_t slot, last;
+	enum column c;
 
 	if (!is_live(d, id))
 		return -ENOENT;
 
 	slot = d->slots[id];
 	last = d->n - 1;
-	memcpy(d->pos[slot], d->pos[last], POS_SIZE);
+	if (slot != last) {
+		for (c = 0; c < NCOLUMNS; c++)
+			memcpy(column_value(d, c, slot),
+			       column_value(d, c, last), column_sizes[c]);
+	}
 	swap_ids(d, slot, last);
 	d->n--;
 	d->gens[id]++;
@@ -182,7 +239,7 @@ int demo_get_pos(const struct demo *d, uint32_t id, float pos[3])
 	if (!is_live(d, id))
 		return -ENOENT;
 
-	memcpy(pos, d->pos[d->slots[id]], POS_SIZE);
+	memcpy(pos, column_value(d, COLUMN_POS, d->slots[id]), POS_SIZE);
 	return 0;
 }
 
@@ -191,13 +248,13 @@ int demo_set_pos(struct demo *d, uint32_t id, const float pos[3])
 	if (!is_live(d, id))
 		return -ENOENT;
 
-	memcpy(d->pos[d->slots[id]], pos, POS_SIZE);
+	memcpy(column_value(d, COLUMN_POS, d->slots[id]), pos, POS_SIZE);
 	return 0;
 }
 
 void demo_get_column(struct demo *d, struct demo_column *col)
 {
-	col->pos = d->pos;
+	col->pos = d->columns[COLUMN_POS];
 	col->slots = d->slots;
 	col->n = d->n;
 }
@@ -228,20 +285,24 @@ static bool name_is(const char *name, size_t len, const char *want)
 	return strlen(want) == len && memcmp(name, want, len) == 0;
 }
 
-/* The directories with fixed names, and the node each name leads to. */
+/*
+ * The directories with fixed names, and the node each name leads to. A row
+ * whose node is not a column's leaves @column zero.
+ */
 static const struct {
 	enum node_kind dir;
 	const char *name;
 	enum node_kind kind;
+	enum column column;
 } fixed_names[] = {
-	{ NODE_ROOT, "components", NODE_COMPONENTS },
-	{ NODE_COMPONENTS, "transform", NODE_TRANSFORM },
-	{ NODE_TRANSFORM, "pos", NODE_POS },
-	{ NODE_TRANSFORM, "ids", NODE_IDS },
-	{ NODE_ROOT, "entities", NODE_ENTITIES },
-	{ NODE_ENTITY, "components", NODE_ENTITY_COMPONENTS },
-	{ NODE_ENTITY_COMPONENTS, "transform", NODE_ENTITY_TRANSFORM },
-	{ NODE_ENTITY_TRANSFORM, "pos", NODE_ENTITY_POS },
+	{ NODE_ROOT, "components", NODE_COMPONENTS, 0 },
+	{ NODE_COMPONENTS, "transform", NODE_TRANSFORM, 0 },
+	{ NODE_TRANSFORM, "pos", NODE_COLUMN, COLUMN_POS },
+	{ NODE_TRANSFORM, "ids", NODE_IDS, 0 },
+	{ NODE_ROOT, "entities", NODE_ENTITIES, 0 },
+	{ NODE_ENTITY, "components", NODE_ENTITY_COMPONENTS, 0 },
+	{ NODE_ENTITY_COMPONENTS, "transform", NODE_ENTITY_TRANSFORM, 0 },
+	{ NODE_ENTITY_TRANSFORM, "pos", NODE_ENTITY_COLUMN, COLUMN_POS },
 };
 
 /*
@@ -256,7 +317,8 @@ static bool is_stale(const struct demo *d, const struct nine_node *node)
 
 static bool is_dir(enum node_kind kind)
 {
-	return kind != NODE_POS && kind != NODE_IDS && kind != NODE_ENTITY_POS;
+	return kind != NODE_COLUMN && kind != NODE_IDS &&
+	       kind != NODE_ENTITY_COLUMN;
 }
 
 static int lookup_entity(const struct demo *d, const char *name, size_t len,
@@ -267,7 +329,7 @@ static int lookup_entity(const struct demo *d, const char *name, size_t len,
 	if (!parse_id(name, len, &id) || !is_live(d, id))
 		return -ENOENT;
 
-	make_node(out, NODE_ENTITY, id, d->gens[id]);
+	make_node(out, NODE_ENTITY, id, d->gens[id], 0);
 	return 0;
 }
 
@@ -289,7 +351,7 @@ static int demo_lookup(void *priv, const struct nine_node *dir,
 		if (fixed_names[i].dir == kind &&
 		    name_is(name, len, fixed_names[i].name)) {
 			make_node(out, fixed_names[i].kind, node_id(dir),
-				  node_gen(dir));
+				  node_gen(dir), fixed_names[i].column);
 			return 0;
 		}
 	}
@@ -375,25 +437,27 @@ static int demo_list(void *priv, const struct nine_node *dir, uint64_t *cursor,
 
 /*
  * Find the memory of the file at @node and its size in bytes. The bulk files
- * are the whole column, and a value file is one entity's slot in it.
+ * are a whole column, and a value file is one entity's slot in it.
  *
  * Return: true, or false when @node is a directory.
  */
 static bool file_data(const struct demo *d, const struct nine_node *node,
 		      void **data, size_t *size)
 {
+	enum column c = node_column(node);
+
 	switch (node_kind(node)) {
-	case NODE_POS:
-		*data = d->pos;
-		*size = d->n * POS_SIZE;
+	case NODE_COLUMN:
+		*data = d->columns[c];
+		*size = d->n * column_sizes[c];
 		return true;
 	case NODE_IDS:
 		*data = d->ids;
 		*size = d->n * sizeof(*d->ids);
 		return true;
-	case NODE_ENTITY_POS:
-		*data = d->pos[d->slots[node_id(node)]];
-		*size = POS_SIZE;
+	case NODE_ENTITY_COLUMN:
+		*data = entity_value(d, node, c);
+		*size = column_sizes[c];
 		return true;
 	default:
 		return false;
@@ -427,8 +491,8 @@ static ptrdiff_t demo_read(void *priv, const struct nine_node *node, void *buf,
 
 	if (is_stale(d, node))
 		return -ESTALE;
-	if (node_kind(node) == NODE_ENTITY_POS && off == 0 && len >= POS_SIZE) {
-		memcpy(buf, d->pos[d->slots[node_id(node)]], POS_SIZE);
+	if (is_entity_pos(node) && off == 0 && len >= POS_SIZE) {
+		memcpy(buf, entity_value(d, node, COLUMN_POS), POS_SIZE);
 		return (ptrdiff_t)POS_SIZE;
 	}
 	if (!file_data(d, node, &data, &size))
@@ -467,8 +531,8 @@ static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 
 	if (is_stale(d, node))
 		return -ESTALE;
-	if (node_kind(node) == NODE_ENTITY_POS && off == 0 && len == POS_SIZE) {
-		memcpy(d->pos[d->slots[node_id(node)]], buf, POS_SIZE);
+	if (is_entity_pos(node) && off == 0 && len == POS_SIZE) {
+		memcpy(entity_value(d, node, COLUMN_POS), buf, POS_SIZE);
 		return 0;
 	}
 	if (node_kind(node) == NODE_IDS)
@@ -532,9 +596,9 @@ static int demo_read_many(void *priv, const struct nine_handle *hs, size_t n,
 
 	for (i = 0; i < n; i++) {
 		node = nine_handle_node(&hs[i]);
-		if (size == POS_SIZE && node_kind(node) == NODE_ENTITY_POS &&
+		if (size == POS_SIZE && is_entity_pos(node) &&
 		    !is_stale(d, node)) {
-			memcpy(p + i * size, d->pos[d->slots[node_id(node)]],
+			memcpy(p + i * size, entity_value(d, node, COLUMN_POS),
 			       POS_SIZE);
 			errs[i] = 0;
 			continue;
@@ -563,32 +627,33 @@ const struct nine_file_server_ops *demo_ops(void)
 
 /*
  * The read of the second variant. It is written apart from demo_read(), and
- * shares only the stale check and the node accessors with it, so the two
- * variants run different read code. Like demo_read(), it copies a whole
+ * shares only the stale check and the node and column accessors with it, so
+ * the two variants run different read code. Like demo_read(), it copies a whole
  * position at a fixed size.
  */
 static ptrdiff_t variant_read(void *priv, const struct nine_node *node,
 			      void *buf, size_t len, uint64_t off)
 {
 	const struct demo *d = priv;
+	enum column c = node_column(node);
 	const char *src;
 	size_t size;
 
 	if (is_stale(d, node))
 		return -ESTALE;
+	if (is_entity_pos(node) && !off && len >= POS_SIZE) {
+		memcpy(buf, entity_value(d, node, COLUMN_POS), POS_SIZE);
+		return (ptrdiff_t)POS_SIZE;
+	}
 
 	switch (node_kind(node)) {
-	case NODE_ENTITY_POS:
-		src = (const char *)d->pos[d->slots[node_id(node)]];
-		if (!off && len >= POS_SIZE) {
-			memcpy(buf, src, POS_SIZE);
-			return (ptrdiff_t)POS_SIZE;
-		}
-		size = POS_SIZE;
+	case NODE_ENTITY_COLUMN:
+		src = entity_value(d, node, c);
+		size = column_sizes[c];
 		break;
-	case NODE_POS:
-		src = (const char *)d->pos;
-		size = d->n * POS_SIZE;
+	case NODE_COLUMN:
+		src = d->columns[c];
+		size = d->n * column_sizes[c];
 		break;
 	case NODE_IDS:
 		src = (const char *)d->ids;
