@@ -66,10 +66,10 @@ static void test_fixed_dirs(void)
 
 	world_init(&w, 2);
 	check_list(&w, "/world", "components entities ");
-	check_list(&w, "/world/components", "transform ");
+	check_list(&w, "/world/components", "transform unit ");
 	check_list(&w, "/world/components/transform", "pos ids ");
 	check_list(&w, "/world/entities/1", "components ");
-	check_list(&w, "/world/entities/1/components", "transform ");
+	check_list(&w, "/world/entities/1/components", "transform unit ");
 	check_list(&w, "/world/entities/1/components/transform", "pos ");
 	world_free(&w);
 }

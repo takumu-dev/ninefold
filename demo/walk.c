@@ -3,7 +3,8 @@
  * The demo program. It mounts two demo instances in a tree, then walks the
  * tree from / with nine_list(), nine_stat() and nine_read(). For each node
  * it prints a line with its path, its kind and its size, and after a file's
- * line, the file's bytes in hex.
+ * line, the file's bytes in hex. Then it writes a good and a bad value as
+ * text to one entity's health, and prints the error and the human message.
  */
 #include <errno.h>
 #include <inttypes.h>
@@ -146,6 +147,64 @@ static int walk(struct nine_ns *ns, const char *path)
 	return print_file(&h, path, st.size);
 }
 
+/* Write @text to the value file at @h, and print what came of it. */
+static int write_text(const struct nine_handle *h, const char *path,
+		      const char *text)
+{
+	struct nine_stat st;
+	int err;
+
+	err = nine_write_text(h, text, strlen(text));
+	if (!err) {
+		printf("write %s to %s: ok\n", text, path);
+		return 0;
+	}
+	if (err != -EINVAL)
+		return fail("write", path, err);
+
+	err = nine_stat(h, &st);
+	if (err)
+		return fail("stat", path, err);
+
+	printf("write %s to %s: EINVAL: %s\n", text, path,
+	       st.type.field->message);
+	return 0;
+}
+
+static int print_text(const struct nine_handle *h, const char *path)
+{
+	char line[NINE_TEXT_MAX];
+	ptrdiff_t n;
+
+	n = nine_read_text(h, line, sizeof(line));
+	if (n < 0)
+		return fail("read", path, (int)n);
+
+	printf("read %s: %.*s", path, (int)n, line);
+	return 0;
+}
+
+/* Write a good and a bad value as text. The bad one changes nothing. */
+static int show_text(struct nine_ns *ns)
+{
+	static const char path[] = "/world/entities/0/components/unit/health";
+	struct nine_handle h;
+	int err;
+
+	err = nine_open(ns, path, NINE_RDWR, &h);
+	if (err)
+		return fail("open", path, err);
+
+	err = write_text(&h, path, "75");
+	if (!err)
+		err = print_text(&h, path);
+	if (!err)
+		err = write_text(&h, path, "150");
+	if (!err)
+		err = print_text(&h, path);
+	return err;
+}
+
 /*
  * Fill @d with @n entities, entity i at (i, 10 i, 100 i) plus @shift, then
  * destroy entity 1 when there is one, so that the last entity moves into its
@@ -187,11 +246,15 @@ int main(void)
 	if (!err)
 		err = fill(sandbox, 3, 0.5f);
 	if (!err)
+		err = demo_add_schemas(t);
+	if (!err)
 		err = nine_mount(t, "/world", demo_ops(), world);
 	if (!err)
 		err = nine_mount(t, "/sandbox/world", demo_ops(), sandbox);
 	if (!err)
 		err = walk(nine_tree_ns(t), "/");
+	if (!err)
+		err = show_text(nine_tree_ns(t));
 out:
 	if (err)
 		fprintf(stderr, "walk: error %d\n", -err);

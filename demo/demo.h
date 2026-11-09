@@ -3,16 +3,23 @@
 #define DEMO_H
 
 /*
- * The demo file server. It keeps one dense column of vec3 f32 positions, one
- * per entity, and shows it two ways. The bulk files are the whole column:
+ * The demo file server. It keeps dense columns, one value per entity, of
+ * vec3 f32 positions and of i32 health from 0 to 100, and shows each two ways.
+ * The bulk files are the whole column:
  *
  *	components/transform/pos	n x 12 bytes, the positions in slot order
  *	components/transform/ids	n x 4 bytes, the uint32_t entity IDs in
  *					slot order, read only
+ *	components/unit/health		n x 4 bytes, the health in slot order
  *
- * Each live entity's position also shows as a 12-byte value file:
+ * Each live entity's value also shows as a value file:
  *
- *	entities/<id>/components/transform/pos
+ *	entities/<id>/components/transform/pos		12 bytes
+ *	entities/<id>/components/unit/health		4 bytes
+ *
+ * Both files of health have the field health of the schema unit as their
+ * type, the bulk file with NINE_TYPE_BULK. A text write checks the range, and
+ * a binary write or demo_set_health() does not.
  *
  * entities/ lists the IDs of the live entities in decimal, smallest first.
  *
@@ -44,7 +51,16 @@ struct demo *demo_new(void);
 void demo_free(struct demo *d);
 
 /*
- * demo_create() - Make a new entity, at position (0, 0, 0). It takes the ID
+ * demo_add_schemas() - Add the schemas of the demo to a tree, once for each
+ * tree, before any tool reads a type. It is a setup call for the tree.
+ *
+ * Return: 0, or an error from nine_add_schema().
+ */
+int demo_add_schemas(struct nine_tree *t);
+
+/*
+ * demo_create() - Make a new entity, at position (0, 0, 0) and with health 0.
+ * It takes the ID
  * of a destroyed entity when there is one.
  *
  * Return: 0 with its ID in *@id, or -ENOMEM.
@@ -64,6 +80,16 @@ int demo_get_pos(const struct demo *d, uint32_t id, float pos[3]);
 
 /* demo_set_pos() - Set an entity's position. Return: 0 or -ENOENT. */
 int demo_set_pos(struct demo *d, uint32_t id, const float pos[3]);
+
+/* demo_get_health() - Read an entity's health. Return: 0 or -ENOENT. */
+int demo_get_health(const struct demo *d, uint32_t id, int32_t *health);
+
+/*
+ * demo_set_health() - Set an entity's health, with no check of its range.
+ *
+ * Return: 0 or -ENOENT.
+ */
+int demo_set_health(struct demo *d, uint32_t id, int32_t health);
 
 /*
  * struct demo_column - The native arrays of an instance, for a plain C loop

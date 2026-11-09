@@ -63,7 +63,9 @@ static void world_init(struct world *w)
 		CHECK_UINT(w->ids[i], ==, i);
 		start_pos(i, w->pos[i]);
 		CHECK_INT(demo_set_pos(w->d, w->ids[i], w->pos[i]), ==, 0);
+		CHECK_INT(demo_set_health(w->d, w->ids[i], i), ==, 0);
 	}
+	CHECK_INT(demo_add_schemas(w->t), ==, 0);
 	CHECK_INT(nine_mount(w->t, "/world", demo_ops(), w->d), ==, 0);
 	w->ns = nine_tree_ns(w->t);
 
@@ -89,6 +91,26 @@ static void read_values(const struct world *w)
 		CHECK_INT(nine_read(&h, got, sizeof(got), 0), ==,
 			  (ptrdiff_t)sizeof(got));
 		CHECK_MEM(got, w->pos[i], sizeof(got));
+	}
+}
+
+/* Read each entity's health as text, through a handle of this thread's own. */
+static void read_text(const struct world *w)
+{
+	char path[64], want[2], buf[NINE_TEXT_MAX];
+	struct nine_handle h;
+	int i;
+
+	for (i = 0; i < NENTITIES; i++) {
+		snprintf(path, sizeof(path),
+			 "/world/entities/%lu/components/unit/health",
+			 (unsigned long)w->ids[i]);
+		CHECK_INT(nine_open(w->ns, path, NINE_RDONLY, &h), ==, 0);
+		want[0] = (char)('0' + i);
+		want[1] = '\n';
+		CHECK_INT(nine_read_text(&h, buf, sizeof(buf)), ==,
+			  sizeof(want));
+		CHECK_MEM(buf, want, sizeof(want));
 	}
 }
 
@@ -145,6 +167,7 @@ static void read_world(void *arg)
 
 	for (i = 0; i < NROUNDS; i++) {
 		read_values(w);
+		read_text(w);
 		read_batch(w);
 		read_bulk(w);
 		read_dirs(w);

@@ -12,17 +12,40 @@
 #define POS_SIZE (3 * sizeof(float))
 
 /*
- * The columns of an entity. To add one, add it here and in column_sizes[],
- * and add its nodes to fixed_names[]. The code below handles it from there.
+ * The columns of an entity. To add one, add it here, in column_sizes[] and,
+ * if it has a type, in column_types[], and add its nodes to fixed_names[]. The
+ * code below handles it from there.
  */
 enum column {
 	COLUMN_POS,
+	COLUMN_HEALTH,
 	NCOLUMNS,
 };
 
 /* The size in bytes of one value of each column. */
 static const size_t column_sizes[NCOLUMNS] = {
 	[COLUMN_POS] = POS_SIZE,
+	[COLUMN_HEALTH] = sizeof(int32_t),
+};
+
+static const struct nine_field unit_fields[] = {
+	{
+		.name = "health",
+		.elem = NINE_I32,
+		.range.i = { 0, 100 },
+		.message = "Health must be from 0 to 100.",
+	},
+};
+
+static const struct nine_schema unit_schema = {
+	.name = "unit",
+	.fields = unit_fields,
+	.nfields = ARRAY_SIZE(unit_fields),
+};
+
+/* The type of each column, NULL for a column that has none. */
+static const struct nine_field *const column_types[NCOLUMNS] = {
+	[COLUMN_HEALTH] = &unit_fields[0],
 };
 
 /*
@@ -58,6 +81,7 @@ enum node_kind {
 	NODE_ROOT,
 	NODE_COMPONENTS,
 	NODE_TRANSFORM,
+	NODE_UNIT,
 	NODE_COLUMN,
 	NODE_IDS,
 	NODE_ENTITIES,
@@ -65,6 +89,7 @@ enum node_kind {
 	NODE_ENTITY,
 	NODE_ENTITY_COMPONENTS,
 	NODE_ENTITY_TRANSFORM,
+	NODE_ENTITY_UNIT,
 	NODE_ENTITY_COLUMN,
 };
 
@@ -252,6 +277,26 @@ int demo_set_pos(struct demo *d, uint32_t id, const float pos[3])
 	return 0;
 }
 
+int demo_get_health(const struct demo *d, uint32_t id, int32_t *health)
+{
+	if (!is_live(d, id))
+		return -ENOENT;
+
+	memcpy(health, column_value(d, COLUMN_HEALTH, d->slots[id]),
+	       sizeof(*health));
+	return 0;
+}
+
+int demo_set_health(struct demo *d, uint32_t id, int32_t health)
+{
+	if (!is_live(d, id))
+		return -ENOENT;
+
+	memcpy(column_value(d, COLUMN_HEALTH, d->slots[id]), &health,
+	       sizeof(health));
+	return 0;
+}
+
 void demo_get_column(struct demo *d, struct demo_column *col)
 {
 	col->pos = d->columns[COLUMN_POS];
@@ -299,10 +344,14 @@ static const struct {
 	{ NODE_COMPONENTS, "transform", NODE_TRANSFORM, 0 },
 	{ NODE_TRANSFORM, "pos", NODE_COLUMN, COLUMN_POS },
 	{ NODE_TRANSFORM, "ids", NODE_IDS, 0 },
+	{ NODE_COMPONENTS, "unit", NODE_UNIT, 0 },
+	{ NODE_UNIT, "health", NODE_COLUMN, COLUMN_HEALTH },
 	{ NODE_ROOT, "entities", NODE_ENTITIES, 0 },
 	{ NODE_ENTITY, "components", NODE_ENTITY_COMPONENTS, 0 },
 	{ NODE_ENTITY_COMPONENTS, "transform", NODE_ENTITY_TRANSFORM, 0 },
 	{ NODE_ENTITY_TRANSFORM, "pos", NODE_ENTITY_COLUMN, COLUMN_POS },
+	{ NODE_ENTITY_COMPONENTS, "unit", NODE_ENTITY_UNIT, 0 },
+	{ NODE_ENTITY_UNIT, "health", NODE_ENTITY_COLUMN, COLUMN_HEALTH },
 };
 
 /*
@@ -543,6 +592,19 @@ static int demo_write(void *priv, const struct nine_node *node, const void *buf,
 	return write_range(data, size, buf, len, off);
 }
 
+/* Give @st the type of @node, a file: its column's, for a column's file. */
+static void set_type(const struct nine_node *node, struct nine_stat *st)
+{
+	enum node_kind kind = node_kind(node);
+	const struct nine_field *field = column_types[node_column(node)];
+
+	if ((kind != NODE_COLUMN && kind != NODE_ENTITY_COLUMN) || !field)
+		return;
+
+	st->type.field = field;
+	st->type.flags = kind == NODE_COLUMN ? NINE_TYPE_BULK : 0;
+}
+
 static int demo_stat(void *priv, const struct nine_node *node,
 		     struct nine_stat *st)
 {
@@ -555,6 +617,7 @@ static int demo_stat(void *priv, const struct nine_node *node,
 	if (file_data(priv, node, &data, &size)) {
 		st->kind = NINE_FILE;
 		st->size = size;
+		set_type(node, st);
 	} else {
 		st->kind = NINE_DIR;
 	}
@@ -619,6 +682,11 @@ static const struct nine_file_server_ops ops = {
 	.write = demo_write,
 	.read_many = demo_read_many,
 };
+
+int demo_add_schemas(struct nine_tree *t)
+{
+	return nine_add_schema(t, &unit_schema);
+}
 
 const struct nine_file_server_ops *demo_ops(void)
 {
