@@ -38,6 +38,7 @@ struct nine_tree *nine_tree_new(void)
 void nine_tree_free(struct nine_tree *t)
 {
 	struct nine_mount *m, *next;
+	struct nine_schema_entry *e, *after;
 
 	if (!t)
 		return;
@@ -45,6 +46,10 @@ void nine_tree_free(struct nine_tree *t)
 	for (m = t->mounts; m; m = next) {
 		next = m->next;
 		tree_release(m);
+	}
+	for (e = t->schemas; e; e = after) {
+		after = e->next;
+		tree_release(e);
 	}
 	tree_release(t);
 }
@@ -98,5 +103,20 @@ int nine_mount(struct nine_tree *t, const char *path,
 	for (tail = &t->mounts; *tail; tail = &(*tail)->next)
 		;
 	*tail = m;
+	return 0;
+}
+
+int nine_add_schema(struct nine_tree *t, const struct nine_schema *s)
+{
+	struct nine_schema_entry *e, **tail;
+
+	e = tree_alloc(sizeof(*e));
+	if (!e)
+		return -ENOMEM;
+
+	e->schema = s;
+	for (tail = &t->schemas; *tail; tail = &(*tail)->next)
+		;
+	*tail = e;
 	return 0;
 }

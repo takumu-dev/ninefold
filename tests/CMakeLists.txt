@@ -33,6 +33,7 @@ ninefold_add_test(instances)
 ninefold_add_test(read_many)
 ninefold_add_test(variant)
 ninefold_add_test(column)
+ninefold_add_test(text)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)
