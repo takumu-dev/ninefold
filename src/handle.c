@@ -162,3 +162,74 @@ int nine_write(const struct nine_handle *h, const void *buf, size_t len,
 
 	return m->ops->write(m->priv, &h->node, buf, len, off);
 }
+
+/*
+ * Stat the node of a text call, and refuse a node that has no text form.
+ * On success, st->type.field is the field of the value.
+ */
+static int stat_text(const struct nine_handle *h, struct nine_stat *st)
+{
+	int err;
+
+	err = nine_stat(h, st);
+	if (err)
+		return err;
+	if (st->kind != NINE_FILE || !st->type.field ||
+	    st->type.flags & NINE_TYPE_BULK ||
+	    !nine_value_has_text(st->type.field))
+		return -ENOTSUP;
+
+	return 0;
+}
+
+ptrdiff_t nine_read_text(const struct nine_handle *h, char *buf, size_t len)
+{
+	const struct nine_mount *m = h->mount;
+	uint64_t bin[NINE_VALUE_MAX / sizeof(uint64_t)];
+	struct nine_stat st;
+	ptrdiff_t ret;
+	size_t size;
+	int err;
+
+	if (!may_read(h))
+		return -EBADF;
+	err = stat_text(h, &st);
+	if (err)
+		return err;
+	size = nine_value_size(st.type.field);
+	if (st.size != size)
+		return -EIO;
+
+	ret = m->ops->read(m->priv, &h->node, bin, size, 0);
+	if (ret < 0)
+		return ret;
+	if ((size_t)ret != size)
+		return -EIO;
+
+	return nine_value_format(st.type.field, bin, buf, len);
+}
+
+int nine_write_text(const struct nine_handle *h, const char *buf, size_t len)
+{
+	const struct nine_mount *m = h->mount;
+	uint64_t bin[NINE_VALUE_MAX / sizeof(uint64_t)];
+	struct nine_stat st;
+	size_t size;
+	int err;
+
+	if (!may_write(h))
+		return -EBADF;
+	err = stat_text(h, &st);
+	if (err)
+		return err;
+	if (!m->ops->write)
+		return -EACCES;
+	size = nine_value_size(st.type.field);
+	if (st.size != size)
+		return -EIO;
+	err = nine_value_parse(st.type.field, buf, len, bin);
+	if (err)
+		return err;
+
+	return m->ops->write(m->priv, &h->node, bin, size, 0);
+}

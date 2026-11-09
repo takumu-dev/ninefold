@@ -8,6 +8,19 @@
 /* ESTALE comes with the header, also where <errno.h> has no such name. */
 static_assert(ESTALE > 0, "ESTALE is a positive error code");
 
+/* A schema descriptor compiles as C++11, which has no designators. */
+static const struct nine_field fields[] = {
+	{ "health",
+	  NINE_I32,
+	  NINE_SCALAR,
+	  nullptr,
+	  { { 0, 100 } },
+	  nullptr,
+	  0,
+	  "Health must be from 0 to 100." },
+};
+static const struct nine_schema schema = { "unit", fields, 1 };
+
 int main()
 {
 	struct nine_tree *t = nine_tree_new();
@@ -26,6 +39,12 @@ int main()
 	if (nine_read(&h, buf, sizeof(buf), 0) >= 0)
 		return 1;
 	if (nine_read_many(&h, 1, buf, sizeof(buf), &err) >= 0)
+		return 1;
+	if (nine_read_text(&h, buf, sizeof(buf)) >= 0)
+		return 1;
+	if (nine_write_text(&h, buf, sizeof(buf)) >= 0)
+		return 1;
+	if (nine_add_schema(t, &schema) != 0)
 		return 1;
 
 	nine_tree_free(t);
