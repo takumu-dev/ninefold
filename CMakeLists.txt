@@ -46,6 +46,7 @@ add_library(ninefold STATIC
 	src/dirs.c
 	src/handle.c
 	src/path.c
+	src/schema.c
 	src/text.c
 	src/tree.c)
 add_library(ninefold::ninefold ALIAS ninefold)

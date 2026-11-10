@@ -44,6 +44,13 @@ bool nine_path_valid(const char *path)
 	return true;
 }
 
+/* One path component: not empty, with no slash, and not "." or "..". */
+bool nine_path_name_valid(const char *name)
+{
+	return name && name[0] && !strchr(name, '/') &&
+	       !is_dot_name(name, strlen(name));
+}
+
 /*
  * nine_path_skip() - Skip the names of @prefix at the start of @path.
  *
