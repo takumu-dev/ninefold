@@ -351,13 +351,33 @@ int nine_mount(struct nine_tree *t, const char *path,
  * @s: The schema. The tree does not copy it: @s and all that it points to
  *	must stay valid until nine_tree_free() returns.
  *
- * Adding the same descriptor again has no effect, so two file servers can
- * show one component.
+ * The call examines all of @s, so that a mistake fails at startup. A refused
+ * descriptor leaves the tree unchanged. Adding the same descriptor, at the
+ * same address, again has no effect, so two file servers can show one
+ * component.
+ *
+ * @s is not valid when:
+ *
+ * - it is NULL, or a schema or a field has no name or a name that is not one
+ *   valid path component;
+ * - it has no fields, or two fields have the same name;
+ * - an element type or a shape is not known, or the shape is not permitted
+ *   for the element type: a quat is f32 or f64, and a bool or an enum is a
+ *   scalar;
+ * - a bool or an enum has a unit or a range, or a unit is not ASCII text
+ *   with no spaces;
+ * - a limit of a range is nan or does not fit in the element type, or the
+ *   minimum is above the maximum;
+ * - an enum has no values or an element type that is not an integer, a
+ *   value does not fit in the element type, two values have the same name,
+ *   or a name does not start with a letter or '_', holds anything but
+ *   letters, digits and '_', or has more than 511 bytes;
+ * - a message contains a newline.
  *
  * Context: No other call may use the tree at the same time.
  *
- * Return: 0, -EINVAL for a descriptor that is not valid, -EEXIST when a
- * different descriptor has the same name in the tree, or -ENOMEM.
+ * Return: 0, -EINVAL when @s is not valid, -EEXIST when a different
+ * descriptor has the same name in the tree, or -ENOMEM.
  */
 int nine_add_schema(struct nine_tree *t, const struct nine_schema *s);
 

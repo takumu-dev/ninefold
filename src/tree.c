@@ -110,13 +110,21 @@ int nine_add_schema(struct nine_tree *t, const struct nine_schema *s)
 {
 	struct nine_schema_entry *e, **tail;
 
+	if (!nine_schema_valid(s))
+		return -EINVAL;
+
+	for (tail = &t->schemas; *tail; tail = &(*tail)->next) {
+		if ((*tail)->schema == s)
+			return 0;
+		if (strcmp((*tail)->schema->name, s->name) == 0)
+			return -EEXIST;
+	}
+
 	e = tree_alloc(sizeof(*e));
 	if (!e)
 		return -ENOMEM;
 
 	e->schema = s;
-	for (tail = &t->schemas; *tail; tail = &(*tail)->next)
-		;
 	*tail = e;
 	return 0;
 }

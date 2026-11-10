@@ -53,7 +53,10 @@ extern const struct nine_file_server_ops nine_dir_ops;
 
 const char *nine_path_next(const char *p, size_t *len);
 bool nine_path_valid(const char *path);
+bool nine_path_name_valid(const char *name);
 const char *nine_path_skip(const char *prefix, const char *path);
+
+bool nine_schema_valid(const struct nine_schema *s);
 
 /* The largest binary form of a value, a vec4 or a quat of f64, in bytes. */
 #define NINE_VALUE_MAX 32
