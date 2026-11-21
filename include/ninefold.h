@@ -387,7 +387,9 @@ int nine_add_schema(struct nine_tree *t, const struct nine_schema *s);
  * @path: The absolute path to mount at, by convention "/types".
  *
  * Each schema shows as a directory, and each of its fields as one read-only
- * file that holds the line nine_field_text() gives.
+ * file that holds the line nine_field_text() gives. A schema added after the
+ * mount shows too. The files have no type, so they have no text form, and a
+ * write returns -EACCES. A tree that never calls this has no such files.
  *
  * Context: No other call may use the tree at the same time.
  *
@@ -397,9 +399,21 @@ int nine_mount_types(struct nine_tree *t, const char *path);
 
 /**
  * nine_field_text() - Write the line that describes a field.
- * @f: The field.
+ * @f: The field, valid as nine_add_schema() checks it.
  * @buf: Gets the line and its newline, with no NUL at the end.
  * @len: The size of @buf in bytes.
+ *
+ * The line holds the type, such as "i32", "vec3 f32" or "enum u8", then
+ * values=, unit=, range= and message=, in that order and one space apart,
+ * for the items that the field has. An empty unit or message is none, as
+ * NULL is. Numbers are in the text form of the
+ * element type, and the message goes on to the end of the line:
+ *
+ *	i32 range=0..100 message=Health must be from 0 to 100.
+ *	enum u8 values=idle:0,walk:1,run:2
+ *
+ * A message or a unit has no length limit, so the line can be longer than
+ * NINE_TEXT_MAX. The range of an f32 or an f64 field is not in the line yet.
  *
  * Context: Any thread.
  *

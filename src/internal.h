@@ -51,6 +51,9 @@ struct nine_tree {
 
 extern const struct nine_file_server_ops nine_dir_ops;
 
+bool nine_dir_put_name(char *buf, size_t size, size_t *used, const char *name,
+		       size_t len);
+
 const char *nine_path_next(const char *p, size_t *len);
 bool nine_path_valid(const char *path);
 bool nine_path_name_valid(const char *name);
