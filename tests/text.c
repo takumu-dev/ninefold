@@ -67,10 +67,10 @@ static void test_read_gives_the_line(void)
  * the @size bytes at @want at offset 0, and a read gives back the same text
  * and the same bytes.
  */
-static void check_round_trip(enum nine_elem elem, const void *want, size_t size,
-			     const char *text)
+static void check_field_round_trip(const struct nine_field *field,
+				   const void *want, size_t size,
+				   const char *text)
 {
-	const struct nine_field field = { .name = "v", .elem = elem };
 	size_t len = strlen(text);
 	char line[NINE_TEXT_MAX];
 	char buf[NINE_TEXT_MAX];
@@ -81,7 +81,7 @@ static void check_round_trip(enum nine_elem elem, const void *want, size_t size,
 	line[len] = '\n';
 
 	for (i = 0; i < 2; i++) {
-		fixture_init(&f, &field, size);
+		fixture_init(&f, field, size);
 		CHECK_INT(nine_write_text(&f.h, line, len + (size_t)i), ==, 0);
 		CHECK_UINT(f.r.ncalls, ==, 2);
 		CHECK_INT(f.r.calls[1].op, ==, RECORDER_WRITE);
@@ -95,10 +95,16 @@ static void check_round_trip(enum nine_elem elem, const void *want, size_t size,
 	}
 }
 
-#define CHECK_ROUND_TRIP(elem, type, text, value)                  \
-	do {                                                       \
-		type want = value;                                 \
-		check_round_trip(elem, &want, sizeof(want), text); \
+#define CHECK_FIELD_ROUND_TRIP(field, type, text, value)                  \
+	do {                                                              \
+		type want = value;                                        \
+		check_field_round_trip(field, &want, sizeof(want), text); \
+	} while (0)
+
+#define CHECK_ROUND_TRIP(e, type, text, value)                              \
+	do {                                                                \
+		const struct nine_field field = { .name = "v", .elem = e }; \
+		CHECK_FIELD_ROUND_TRIP(&field, type, text, value);          \
 	} while (0)
 
 static void test_round_trip_of_each_integer_type(void)
@@ -303,6 +309,342 @@ static void test_read_and_binary_write_ignore_the_range(void)
 	CHECK_MEM(f.r.value, &bad, sizeof(bad));
 	CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, 4);
 	CHECK_MEM(buf, "150\n", 4);
+	fixture_free(&f);
+}
+
+/* The @size bytes at @value read as @line. */
+static void check_reads(const struct nine_field *field, const void *value,
+			size_t size, const char *line)
+{
+	size_t len = strlen(line);
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+
+	fixture_init(&f, field, size);
+	memcpy(f.r.value, value, size);
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, len);
+	CHECK_MEM(buf, line, len);
+	fixture_free(&f);
+}
+
+#define CHECK_READS(field, type, value, line)            \
+	do {                                             \
+		type v = value;                          \
+		check_reads(field, &v, sizeof(v), line); \
+	} while (0)
+
+static const struct nine_field bool_field = { .name = "v", .elem = NINE_BOOL };
+
+static void test_bool_round_trip(void)
+{
+	CHECK_FIELD_ROUND_TRIP(&bool_field, uint8_t, "false", 0);
+	CHECK_FIELD_ROUND_TRIP(&bool_field, uint8_t, "true", 1);
+}
+
+/* Any byte other than 0 is true. */
+static void test_bool_reads_any_other_byte_as_true(void)
+{
+	CHECK_READS(&bool_field, uint8_t, 2, "true\n");
+	CHECK_READS(&bool_field, uint8_t, 0x80, "true\n");
+	CHECK_READS(&bool_field, uint8_t, 0xff, "true\n");
+}
+
+static void test_bool_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	 "\n",	   "0",	   "1",		"True",	 "TRUE",
+		"False", "FALSE",  "yes",  "tru",	"truee", " true",
+		"true ", "true\t", "fals", "false\n\n", "-1",	 "true\r\n",
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&bool_field, 1, forms[i], strlen(forms[i]));
+	check_refused(&bool_field, 1, "true\0", 5);
+}
+
+static const struct nine_enum_value states[] = {
+	{ "idle", 0 },
+	{ "walk", 1 },
+	{ "run", 2 },
+};
+
+#define ENUM_FIELD(e, v)                  \
+	{                                 \
+		.name = "v",              \
+		.elem = e,                \
+		.values = v,              \
+		.nvalues = ARRAY_SIZE(v), \
+	}
+
+static void test_enum_round_trip_of_each_integer_type(void)
+{
+	const struct nine_field i8 = ENUM_FIELD(NINE_I8, states);
+	const struct nine_field i16 = ENUM_FIELD(NINE_I16, states);
+	const struct nine_field i32 = ENUM_FIELD(NINE_I32, states);
+	const struct nine_field i64 = ENUM_FIELD(NINE_I64, states);
+	const struct nine_field u8 = ENUM_FIELD(NINE_U8, states);
+	const struct nine_field u16 = ENUM_FIELD(NINE_U16, states);
+	const struct nine_field u32 = ENUM_FIELD(NINE_U32, states);
+	const struct nine_field u64 = ENUM_FIELD(NINE_U64, states);
+
+	CHECK_FIELD_ROUND_TRIP(&i8, int8_t, "idle", 0);
+	CHECK_FIELD_ROUND_TRIP(&i8, int8_t, "walk", 1);
+	CHECK_FIELD_ROUND_TRIP(&i16, int16_t, "run", 2);
+	CHECK_FIELD_ROUND_TRIP(&i32, int32_t, "walk", 1);
+	CHECK_FIELD_ROUND_TRIP(&i64, int64_t, "run", 2);
+	CHECK_FIELD_ROUND_TRIP(&u8, uint8_t, "idle", 0);
+	CHECK_FIELD_ROUND_TRIP(&u8, uint8_t, "run", 2);
+	CHECK_FIELD_ROUND_TRIP(&u16, uint16_t, "walk", 1);
+	CHECK_FIELD_ROUND_TRIP(&u32, uint32_t, "run", 2);
+	CHECK_FIELD_ROUND_TRIP(&u64, uint64_t, "walk", 1);
+}
+
+/* Values at the limits of their type, and negative ones. */
+static void test_enum_round_trip_of_extreme_values(void)
+{
+	static const struct nine_enum_value wide[] = {
+		{ "lowest", INT64_MIN },
+		{ "minus", -1 },
+		{ "highest", INT64_MAX },
+	};
+	static const struct nine_enum_value narrow[] = {
+		{ "lowest", INT8_MIN },
+		{ "minus", -1 },
+		{ "highest", INT8_MAX },
+	};
+	static const struct nine_enum_value byte[] = { { "top", UINT8_MAX } };
+	static const struct nine_enum_value top[] = { { "highest",
+							INT64_MAX } };
+	const struct nine_field i64 = ENUM_FIELD(NINE_I64, wide);
+	const struct nine_field i8 = ENUM_FIELD(NINE_I8, narrow);
+	const struct nine_field u8 = ENUM_FIELD(NINE_U8, byte);
+	const struct nine_field u64 = ENUM_FIELD(NINE_U64, top);
+
+	CHECK_FIELD_ROUND_TRIP(&i64, int64_t, "lowest", INT64_MIN);
+	CHECK_FIELD_ROUND_TRIP(&i64, int64_t, "minus", -1);
+	CHECK_FIELD_ROUND_TRIP(&i64, int64_t, "highest", INT64_MAX);
+	CHECK_FIELD_ROUND_TRIP(&i8, int8_t, "lowest", INT8_MIN);
+	CHECK_FIELD_ROUND_TRIP(&i8, int8_t, "minus", -1);
+	CHECK_FIELD_ROUND_TRIP(&i8, int8_t, "highest", INT8_MAX);
+	CHECK_FIELD_ROUND_TRIP(&u8, uint8_t, "top", UINT8_MAX);
+	CHECK_FIELD_ROUND_TRIP(&u64, uint64_t, "highest", INT64_MAX);
+}
+
+/* A value that is not listed reads as its number, and the read succeeds. */
+static void test_enum_unlisted_value_reads_as_number(void)
+{
+	const struct nine_field i8 = ENUM_FIELD(NINE_I8, states);
+	const struct nine_field i32 = ENUM_FIELD(NINE_I32, states);
+	const struct nine_field u8 = ENUM_FIELD(NINE_U8, states);
+	const struct nine_field u64 = ENUM_FIELD(NINE_U64, states);
+
+	CHECK_READS(&i8, int8_t, -5, "-5\n");
+	CHECK_READS(&i32, int32_t, 3, "3\n");
+	CHECK_READS(&i32, int32_t, INT32_MIN, "-2147483648\n");
+	CHECK_READS(&u8, uint8_t, 255, "255\n");
+	CHECK_READS(&u64, uint64_t, UINT64_MAX, "18446744073709551615\n");
+	/* The low bits of a large value match no listed value. */
+	CHECK_READS(&u64, uint64_t, (uint64_t)1 << 32 | 1, "4294967297\n");
+}
+
+static void test_enum_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	 "\n",	   "0",	   "1",	       "2",	"3",
+		"Walk",	 "WALK",   "jump", "wal",      "walkk", " walk",
+		"walk ", "walk\t", "-1",   "walk\n\n", "idle1", "walk\r\n",
+	};
+	const struct nine_field field = ENUM_FIELD(NINE_I32, states);
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 4, forms[i], strlen(forms[i]));
+	check_refused(&field, 4, "walk\0", 5);
+}
+
+/* Of two names with one value, a read gives the first, and both write it. */
+static void test_enum_names_that_share_a_value(void)
+{
+	static const struct nine_enum_value values[] = {
+		{ "idle", 0 },
+		{ "rest", 0 },
+		{ "walk", 1 },
+	};
+	const struct nine_field field = ENUM_FIELD(NINE_U8, values);
+	const uint8_t zero = 0;
+	static const char *const names[] = { "idle", "rest" };
+	struct fixture f;
+	size_t i;
+
+	CHECK_READS(&field, uint8_t, 0, "idle\n");
+	for (i = 0; i < ARRAY_SIZE(names); i++) {
+		fixture_init(&f, &field, 1);
+		f.r.value[0] = 1;
+		CHECK_INT(nine_write_text(&f.h, names[i], strlen(names[i])), ==,
+			  0);
+		CHECK_MEM(f.r.value, &zero, 1);
+		fixture_free(&f);
+	}
+}
+
+/*
+ * Each vector shape of @elem round-trips its first elements of the four at
+ * @values, each of @size bytes, with the text forms @texts.
+ */
+static void check_vectors(enum nine_elem elem, const void *values, size_t size,
+			  const char *const texts[4])
+{
+	static const enum nine_shape shapes[] = { NINE_VEC2, NINE_VEC3,
+						  NINE_VEC4 };
+	char line[NINE_TEXT_MAX];
+	size_t i, n, used;
+
+	for (i = 0; i < ARRAY_SIZE(shapes); i++) {
+		const struct nine_field field = { .name = "v",
+						  .elem = elem,
+						  .shape = shapes[i] };
+
+		used = 0;
+		for (n = 0; n < i + 2; n++) {
+			if (n)
+				line[used++] = ' ';
+			memcpy(line + used, texts[n], strlen(texts[n]));
+			used += strlen(texts[n]);
+		}
+		line[used] = '\0';
+		check_field_round_trip(&field, values, (i + 2) * size, line);
+	}
+}
+
+#define CHECK_VECTORS(e, type, a, b, c, d, ta, tb, tc, td)      \
+	do {                                                    \
+		const type values[] = { a, b, c, d };           \
+		const char *const texts[] = { ta, tb, tc, td }; \
+		check_vectors(e, values, sizeof(type), texts);  \
+	} while (0)
+
+static void test_vector_round_trip_of_each_shape_and_type(void)
+{
+	CHECK_VECTORS(NINE_I8, int8_t, INT8_MIN, -1, 0, INT8_MAX, "-128", "-1",
+		      "0", "127");
+	CHECK_VECTORS(NINE_I16, int16_t, INT16_MAX, INT16_MIN, 7, -7, "32767",
+		      "-32768", "7", "-7");
+	CHECK_VECTORS(NINE_I32, int32_t, 1, INT32_MIN, INT32_MAX, 0, "1",
+		      "-2147483648", "2147483647", "0");
+	CHECK_VECTORS(NINE_I64, int64_t, INT64_MIN, INT64_MAX, -1, 10,
+		      "-9223372036854775808", "9223372036854775807", "-1",
+		      "10");
+	CHECK_VECTORS(NINE_U8, uint8_t, 0, UINT8_MAX, 1, 2, "0", "255", "1",
+		      "2");
+	CHECK_VECTORS(NINE_U16, uint16_t, UINT16_MAX, 0, 300, 4, "65535", "0",
+		      "300", "4");
+	CHECK_VECTORS(NINE_U32, uint32_t, 5, UINT32_MAX, 0, 6, "5",
+		      "4294967295", "0", "6");
+	CHECK_VECTORS(NINE_U64, uint64_t, UINT64_MAX, 0, 1, UINT64_MAX - 1,
+		      "18446744073709551615", "0", "1", "18446744073709551614");
+}
+
+/* The forms of a vec3 that a read never gives. */
+static void test_vector_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	   "\n",      "1",	"1 2",	   "1 2 3 4",
+		"1  2 3",  "1 2  3",  " 1 2 3", "1 2 3 ",  "1 2 3\n\n",
+		"1\t2 3",  "1 2\t3",  "1,2,3",	"1, 2, 3", "1 2 3\r\n",
+		"1 2 ",	   "1 2 3m",  "1 +2 3", "1 2 -0",  "1 02 3",
+		"1 2 0x3", "1 2 3.0", "1\n2 3", "1 2\n3",  "\n1 2 3",
+	};
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_VEC3 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 12, forms[i], strlen(forms[i]));
+	/* A NUL, written \000 before the 3, in place of the last space. */
+	check_refused(&field, 12, "1 2\0003", 5);
+}
+
+/* One element that does not fit refuses the whole value. */
+static void test_vector_element_that_does_not_fit(void)
+{
+	const struct nine_field i8 = { .name = "v",
+				       .elem = NINE_I8,
+				       .shape = NINE_VEC2 };
+	const struct nine_field u16 = { .name = "v",
+					.elem = NINE_U16,
+					.shape = NINE_VEC4 };
+
+	check_refused(&i8, 2, "128 0", 5);
+	check_refused(&i8, 2, "0 -129", 6);
+	check_refused(&u16, 8, "1 2 3 -1", 8);
+	check_refused(&u16, 8, "65536 2 3 4", 11);
+}
+
+/* The range binds each element, and one bad element refuses them all. */
+static void test_vector_range_applies_to_each_element(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_VEC3,
+					  .range.i = { 0, 100 } };
+	const int32_t limits[] = { 0, 100, 0 };
+
+	check_field_round_trip(&field, limits, sizeof(limits), "0 100 0");
+	check_refused(&field, 12, "101 0 0", 7);
+	check_refused(&field, 12, "0 101 0", 7);
+	check_refused(&field, 12, "0 0 101", 7);
+	check_refused(&field, 12, "0 -1 0", 6);
+}
+
+/* A read shows a vector stored out of its range. */
+static void test_vector_read_ignores_the_range(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_VEC2,
+					  .range.i = { 0, 100 } };
+	const int32_t bad[] = { 150, -3 };
+
+	check_reads(&field, bad, sizeof(bad), "150 -3\n");
+}
+
+/* The size of a vector is the size of all its elements. */
+static void test_vector_of_the_wrong_size_is_eio(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_VEC3 };
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+
+	fixture_init(&f, &field, 4);
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, -EIO);
+	CHECK_INT(nine_write_text(&f.h, "1 2 3", 5), ==, -EIO);
+	fixture_free(&f);
+}
+
+#define INT64_MIN_TEXT "-9223372036854775808"
+
+/* The longest integer line, a vec4 of the smallest i64, needs every byte. */
+static void test_longest_vector_line(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I64,
+					  .shape = NINE_VEC4 };
+	const int64_t values[] = { INT64_MIN, INT64_MIN, INT64_MIN, INT64_MIN };
+	static const char line[] = INT64_MIN_TEXT
+		" " INT64_MIN_TEXT " " INT64_MIN_TEXT " " INT64_MIN_TEXT "\n";
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+
+	fixture_init(&f, &field, sizeof(values));
+	memcpy(f.r.value, values, sizeof(values));
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(line) - 2), ==, -ERANGE);
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(line) - 1), ==,
+		  sizeof(line) - 1);
+	CHECK_MEM(buf, line, sizeof(line) - 1);
 	fixture_free(&f);
 }
 
@@ -567,6 +909,21 @@ int main(void)
 	test_range_of_large_unsigned_values();
 	test_range_with_a_limit_of_zero();
 	test_read_and_binary_write_ignore_the_range();
+	test_bool_round_trip();
+	test_bool_reads_any_other_byte_as_true();
+	test_bool_refused_forms();
+	test_enum_round_trip_of_each_integer_type();
+	test_enum_round_trip_of_extreme_values();
+	test_enum_unlisted_value_reads_as_number();
+	test_enum_refused_forms();
+	test_enum_names_that_share_a_value();
+	test_vector_round_trip_of_each_shape_and_type();
+	test_vector_refused_forms();
+	test_vector_element_that_does_not_fit();
+	test_vector_range_applies_to_each_element();
+	test_vector_read_ignores_the_range();
+	test_vector_of_the_wrong_size_is_eio();
+	test_longest_vector_line();
 	test_ebadf_comes_before_stat();
 	test_stat_error_is_returned_unchanged();
 	test_untyped_file_has_no_text_form();

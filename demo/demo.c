@@ -19,6 +19,8 @@
 enum column {
 	COLUMN_POS,
 	COLUMN_HEALTH,
+	COLUMN_ALIVE,
+	COLUMN_STATE,
 	NCOLUMNS,
 };
 
@@ -26,6 +28,14 @@ enum column {
 static const size_t column_sizes[NCOLUMNS] = {
 	[COLUMN_POS] = POS_SIZE,
 	[COLUMN_HEALTH] = sizeof(int32_t),
+	[COLUMN_ALIVE] = sizeof(uint8_t),
+	[COLUMN_STATE] = sizeof(uint8_t),
+};
+
+static const struct nine_enum_value states[] = {
+	{ "idle", DEMO_IDLE },
+	{ "walk", DEMO_WALK },
+	{ "run", DEMO_RUN },
 };
 
 static const struct nine_field unit_fields[] = {
@@ -34,6 +44,17 @@ static const struct nine_field unit_fields[] = {
 		.elem = NINE_I32,
 		.range.i = { 0, 100 },
 		.message = "Health must be from 0 to 100.",
+	},
+	{
+		.name = "alive",
+		.elem = NINE_BOOL,
+	},
+	{
+		.name = "state",
+		.elem = NINE_U8,
+		.values = states,
+		.nvalues = ARRAY_SIZE(states),
+		.message = "Pick a known state.",
 	},
 };
 
@@ -46,6 +67,8 @@ static const struct nine_schema unit_schema = {
 /* The type of each column, NULL for a column that has none. */
 static const struct nine_field *const column_types[NCOLUMNS] = {
 	[COLUMN_HEALTH] = &unit_fields[0],
+	[COLUMN_ALIVE] = &unit_fields[1],
+	[COLUMN_STATE] = &unit_fields[2],
 };
 
 /*
@@ -277,24 +300,64 @@ int demo_set_pos(struct demo *d, uint32_t id, const float pos[3])
 	return 0;
 }
 
-int demo_get_health(const struct demo *d, uint32_t id, int32_t *health)
+/* Copy the value of column @c of a live entity to @value. */
+static int get_value(const struct demo *d, uint32_t id, enum column c,
+		     void *value)
 {
 	if (!is_live(d, id))
 		return -ENOENT;
 
-	memcpy(health, column_value(d, COLUMN_HEALTH, d->slots[id]),
-	       sizeof(*health));
+	memcpy(value, column_value(d, c, d->slots[id]), column_sizes[c]);
 	return 0;
+}
+
+/* Set the value of column @c of a live entity from @value. */
+static int set_value(struct demo *d, uint32_t id, enum column c,
+		     const void *value)
+{
+	if (!is_live(d, id))
+		return -ENOENT;
+
+	memcpy(column_value(d, c, d->slots[id]), value, column_sizes[c]);
+	return 0;
+}
+
+int demo_get_health(const struct demo *d, uint32_t id, int32_t *health)
+{
+	return get_value(d, id, COLUMN_HEALTH, health);
 }
 
 int demo_set_health(struct demo *d, uint32_t id, int32_t health)
 {
-	if (!is_live(d, id))
-		return -ENOENT;
+	return set_value(d, id, COLUMN_HEALTH, &health);
+}
 
-	memcpy(column_value(d, COLUMN_HEALTH, d->slots[id]), &health,
-	       sizeof(health));
-	return 0;
+int demo_get_alive(const struct demo *d, uint32_t id, bool *alive)
+{
+	uint8_t v;
+	int err;
+
+	err = get_value(d, id, COLUMN_ALIVE, &v);
+	if (!err)
+		*alive = v != 0;
+	return err;
+}
+
+int demo_set_alive(struct demo *d, uint32_t id, bool alive)
+{
+	uint8_t v = alive;
+
+	return set_value(d, id, COLUMN_ALIVE, &v);
+}
+
+int demo_get_state(const struct demo *d, uint32_t id, uint8_t *state)
+{
+	return get_value(d, id, COLUMN_STATE, state);
+}
+
+int demo_set_state(struct demo *d, uint32_t id, uint8_t state)
+{
+	return set_value(d, id, COLUMN_STATE, &state);
 }
 
 void demo_get_column(struct demo *d, struct demo_column *col)
@@ -346,12 +409,16 @@ static const struct {
 	{ NODE_TRANSFORM, "ids", NODE_IDS, 0 },
 	{ NODE_COMPONENTS, "unit", NODE_UNIT, 0 },
 	{ NODE_UNIT, "health", NODE_COLUMN, COLUMN_HEALTH },
+	{ NODE_UNIT, "alive", NODE_COLUMN, COLUMN_ALIVE },
+	{ NODE_UNIT, "state", NODE_COLUMN, COLUMN_STATE },
 	{ NODE_ROOT, "entities", NODE_ENTITIES, 0 },
 	{ NODE_ENTITY, "components", NODE_ENTITY_COMPONENTS, 0 },
 	{ NODE_ENTITY_COMPONENTS, "transform", NODE_ENTITY_TRANSFORM, 0 },
 	{ NODE_ENTITY_TRANSFORM, "pos", NODE_ENTITY_COLUMN, COLUMN_POS },
 	{ NODE_ENTITY_COMPONENTS, "unit", NODE_ENTITY_UNIT, 0 },
 	{ NODE_ENTITY_UNIT, "health", NODE_ENTITY_COLUMN, COLUMN_HEALTH },
+	{ NODE_ENTITY_UNIT, "alive", NODE_ENTITY_COLUMN, COLUMN_ALIVE },
+	{ NODE_ENTITY_UNIT, "state", NODE_ENTITY_COLUMN, COLUMN_STATE },
 };
 
 /*
