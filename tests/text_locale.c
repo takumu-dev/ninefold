@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
 #include <locale.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -20,7 +21,7 @@
  * names glibc and the Microsoft C library give them.
  * Return: whether one was there.
  */
-static int use_comma_locale(void)
+static bool use_comma_locale(void)
 {
 	static const char *const names[] = {
 		"de_DE.UTF-8", "de_DE.utf8", "de_DE", "fr_FR.UTF-8",
@@ -31,9 +32,9 @@ static int use_comma_locale(void)
 	for (i = 0; i < ARRAY_SIZE(names); i++) {
 		if (setlocale(LC_NUMERIC, names[i]) &&
 		    !strcmp(localeconv()->decimal_point, ","))
-			return 1;
+			return true;
 	}
-	return 0;
+	return false;
 }
 
 /* Write @text to a vec2 of f32, then read back @line and the bytes @want. */

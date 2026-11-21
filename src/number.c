@@ -64,7 +64,7 @@
 #define F32_DIGITS_MAX 9
 
 /* Copy the @n bytes at @s to @p. Return: the end of the copy. */
-static char *put(char *p, const char *s, size_t n)
+static char *put_bytes(char *p, const char *s, size_t n)
 {
 	memcpy(p, s, n);
 	return p + n;
@@ -114,16 +114,16 @@ static char *put_decimal(char *p, const char *digits, size_t n, int exp)
 	int point = exp + 1;
 
 	if (point <= 0) {
-		p = put(p, "0.", 2);
+		p = put_bytes(p, "0.", 2);
 		p = put_zeros(p, (size_t)-point);
-		return put(p, digits, n);
+		return put_bytes(p, digits, n);
 	}
 	if ((size_t)point < n) {
-		p = put(p, digits, (size_t)point);
+		p = put_bytes(p, digits, (size_t)point);
 		*p++ = '.';
-		return put(p, digits + point, n - (size_t)point);
+		return put_bytes(p, digits + point, n - (size_t)point);
 	}
-	p = put(p, digits, n);
+	p = put_bytes(p, digits, n);
 	return put_zeros(p, (size_t)point - n);
 }
 
@@ -133,7 +133,7 @@ static char *put_exponent(char *p, const char *digits, size_t n, int exp)
 	*p++ = digits[0];
 	if (n > 1) {
 		*p++ = '.';
-		p = put(p, digits + 1, n - 1);
+		p = put_bytes(p, digits + 1, n - 1);
 	}
 	*p++ = 'e';
 	if (exp < 0) {
@@ -156,13 +156,13 @@ size_t nine_f32_format(uint32_t bits, char *buf)
 	int exp;
 
 	if (mag > F32_EXP_MASK)
-		return (size_t)(put(p, "nan", 3) - buf);
+		return (size_t)(put_bytes(p, "nan", 3) - buf);
 	if (bits & F32_SIGN)
 		*p++ = '-';
 	if (mag == F32_EXP_MASK)
-		return (size_t)(put(p, "inf", 3) - buf);
+		return (size_t)(put_bytes(p, "inf", 3) - buf);
 	if (!mag)
-		return (size_t)(put(p, "0", 1) - buf);
+		return (size_t)(put_bytes(p, "0", 1) - buf);
 
 	memcpy(&v, &mag, sizeof(v));
 	n = shortest(v, digits, &exp);

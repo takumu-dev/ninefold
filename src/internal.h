@@ -72,7 +72,7 @@ ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
 int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
 		     void *bin);
 
-/* The longest text of an f32, such as -1.2345678e-38 or -0.00012345678. */
+/* The longest text of an f32, such as -1.16047665e-36 or -0.000100000005. */
 #define NINE_F32_TEXT_MAX 15
 
 /*

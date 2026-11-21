@@ -883,16 +883,16 @@ static void test_f32_vectors(void)
 		      (float)-pos_inf, "0", "-0", "inf", "-inf");
 }
 
-#define F32_LONGEST_TEXT "-1.1754945e-38"
+#define F32_LONGEST_TEXT "-1.16047665e-36"
 
-/* The longest f32 line: a vec4 of the longest numbers. */
+/* The longest f32 line: a vec4 of numbers with nine digits and a sign. */
 static void test_f32_longest_vector_line(void)
 {
 	const struct nine_field field = { .name = "v",
 					  .elem = NINE_F32,
 					  .shape = NINE_VEC4 };
-	const uint32_t values[] = { 0x80800001, 0x80800001, 0x80800001,
-				    0x80800001 };
+	const uint32_t values[] = { 0x83c571e3, 0x83c571e3, 0x83c571e3,
+				    0x83c571e3 };
 	static const char line[] =
 		F32_LONGEST_TEXT " " F32_LONGEST_TEXT " " F32_LONGEST_TEXT
 				 " " F32_LONGEST_TEXT "\n";
