@@ -566,12 +566,13 @@ static void test_vector_refused_forms(void)
 	const struct nine_field field = { .name = "v",
 					  .elem = NINE_I32,
 					  .shape = NINE_VEC3 };
+	static const char nul[] = { '1', ' ', '2', '\0', '3' };
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(forms); i++)
 		check_refused(&field, 12, forms[i], strlen(forms[i]));
-	/* A NUL, written \000 before the 3, in place of the last space. */
-	check_refused(&field, 12, "1 2\0003", 5);
+	/* A NUL in place of the last space. */
+	check_refused(&field, 12, nul, sizeof(nul));
 }
 
 /* One element that does not fit refuses the whole value. */
