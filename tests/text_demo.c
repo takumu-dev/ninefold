@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,15 +42,21 @@ static void world_free(struct world *w)
 	demo_free(w->d);
 }
 
-static void open_health(struct world *w, uint32_t id, int mode,
-			struct nine_handle *h)
+/* Open the value file of the column @name of unit of an entity. */
+static void open_unit(struct world *w, uint32_t id, const char *name, int mode,
+		      struct nine_handle *h)
 {
 	char path[64];
 
-	snprintf(path, sizeof(path),
-		 "/world/entities/%lu/components/unit/health",
-		 (unsigned long)id);
+	snprintf(path, sizeof(path), "/world/entities/%lu/components/unit/%s",
+		 (unsigned long)id, name);
 	CHECK_INT(nine_open(w->ns, path, mode, h), ==, 0);
+}
+
+static void open_health(struct world *w, uint32_t id, int mode,
+			struct nine_handle *h)
+{
+	open_unit(w, id, "health", mode, h);
 }
 
 static void check_text(const struct nine_handle *h, const char *line)
@@ -230,6 +237,142 @@ static void test_health_follows_its_entity(void)
 	world_free(&w);
 }
 
+static void check_alive(const struct world *w, uint32_t id, bool want)
+{
+	bool got;
+
+	CHECK_INT(demo_get_alive(w->d, id, &got), ==, 0);
+	CHECK_INT(got, ==, want);
+}
+
+static void check_state(const struct world *w, uint32_t id, uint8_t want)
+{
+	uint8_t got;
+
+	CHECK_INT(demo_get_state(w->d, id, &got), ==, 0);
+	CHECK_UINT(got, ==, want);
+}
+
+static void test_alive_round_trip(void)
+{
+	struct nine_handle h;
+	struct world w;
+
+	world_init(&w, 2);
+	open_unit(&w, 1, "alive", NINE_RDWR, &h);
+	check_text(&h, "false\n");
+	CHECK_INT(nine_write_text(&h, "true\n", 5), ==, 0);
+	check_text(&h, "true\n");
+	check_alive(&w, 1, true);
+	check_alive(&w, 0, false);
+
+	CHECK_INT(nine_write_text(&h, "1", 1), ==, -EINVAL);
+	check_alive(&w, 1, true);
+	CHECK_INT(demo_set_alive(w.d, 1, false), ==, 0);
+	check_text(&h, "false\n");
+	world_free(&w);
+}
+
+static void test_state_round_trip(void)
+{
+	struct nine_handle h;
+	struct nine_stat st;
+	struct world w;
+
+	world_init(&w, 2);
+	open_unit(&w, 0, "state", NINE_RDWR, &h);
+	check_text(&h, "idle\n");
+	CHECK_INT(nine_write_text(&h, "run", 3), ==, 0);
+	check_text(&h, "run\n");
+	check_state(&w, 0, DEMO_RUN);
+	check_state(&w, 1, DEMO_IDLE);
+	CHECK_INT(demo_set_state(w.d, 0, DEMO_WALK), ==, 0);
+	check_text(&h, "walk\n");
+
+	CHECK_INT(nine_write_text(&h, "jump", 4), ==, -EINVAL);
+	CHECK_INT(nine_write_text(&h, "2", 1), ==, -EINVAL);
+	check_state(&w, 0, DEMO_WALK);
+	CHECK_INT(nine_stat(&h, &st), ==, 0);
+	CHECK_STR(st.type.field->message, "Pick a known state.");
+	world_free(&w);
+}
+
+/* Native code may store a state that is not listed, and a read shows it. */
+static void test_unlisted_state_shows_as_number(void)
+{
+	struct nine_handle h;
+	struct world w;
+
+	world_init(&w, 1);
+	open_unit(&w, 0, "state", NINE_RDONLY, &h);
+	CHECK_INT(demo_set_state(w.d, 0, 7), ==, 0);
+	check_text(&h, "7\n");
+	world_free(&w);
+}
+
+/* Each new column has its type on both files, and its bulk file is binary. */
+static void test_new_columns_are_typed(void)
+{
+	static const struct {
+		const char *name;
+		enum nine_elem elem;
+	} columns[] = {
+		{ "alive", NINE_BOOL },
+		{ "state", NINE_U8 },
+	};
+	const uint8_t want[2] = { 1, 2 };
+	struct nine_handle bulk, entity;
+	struct nine_stat st, entity_st;
+	char path[64];
+	struct world w;
+	uint8_t got[2];
+	size_t i;
+
+	world_init(&w, 2);
+	for (i = 0; i < ARRAY_SIZE(columns); i++) {
+		snprintf(path, sizeof(path), "/world/components/unit/%s",
+			 columns[i].name);
+		CHECK_INT(nine_open(w.ns, path, NINE_RDWR, &bulk), ==, 0);
+		open_unit(&w, 1, columns[i].name, NINE_RDONLY, &entity);
+		CHECK_INT(nine_stat(&bulk, &st), ==, 0);
+		CHECK_INT(nine_stat(&entity, &entity_st), ==, 0);
+		CHECK_STR(entity_st.type.field->name, columns[i].name);
+		CHECK_INT(entity_st.type.field->elem, ==, columns[i].elem);
+		CHECK_UINT(entity_st.size, ==, 1);
+		CHECK_UINT(entity_st.type.flags, ==, 0);
+		CHECK_PTR(st.type.field, ==, entity_st.type.field);
+		CHECK_UINT(st.type.flags, ==, NINE_TYPE_BULK);
+		CHECK_UINT(st.size, ==, sizeof(got));
+
+		CHECK_INT(nine_write(&bulk, want, sizeof(want), 0), ==, 0);
+		CHECK_INT(nine_read(&bulk, got, sizeof(got), 0), ==,
+			  sizeof(got));
+		CHECK_MEM(got, want, sizeof(want));
+	}
+	check_alive(&w, 0, true);
+	check_state(&w, 1, DEMO_RUN);
+	world_free(&w);
+}
+
+/* A swap-remove moves every column of unit with its entity. */
+static void test_unit_follows_its_entity(void)
+{
+	struct nine_handle alive, state;
+	struct world w;
+
+	world_init(&w, 3);
+	open_unit(&w, 2, "alive", NINE_RDWR, &alive);
+	open_unit(&w, 2, "state", NINE_RDWR, &state);
+	CHECK_INT(nine_write_text(&alive, "true", 4), ==, 0);
+	CHECK_INT(nine_write_text(&state, "walk", 4), ==, 0);
+	CHECK_INT(demo_destroy(w.d, 0), ==, 0);
+	check_text(&alive, "true\n");
+	check_text(&state, "walk\n");
+	check_alive(&w, 2, true);
+	check_state(&w, 2, DEMO_WALK);
+	world_free(&w);
+}
+
 int main(void)
 {
 	test_text_round_trip();
@@ -240,5 +383,10 @@ int main(void)
 	test_ids_and_directories_have_no_text_form();
 	test_stale_handle();
 	test_health_follows_its_entity();
+	test_alive_round_trip();
+	test_state_round_trip();
+	test_unlisted_state_shows_as_number();
+	test_new_columns_are_typed();
+	test_unit_follows_its_entity();
 	return 0;
 }

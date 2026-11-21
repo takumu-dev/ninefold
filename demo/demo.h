@@ -4,22 +4,27 @@
 
 /*
  * The demo file server. It keeps dense columns, one value per entity, of
- * vec3 f32 positions and of i32 health from 0 to 100, and shows each two ways.
- * The bulk files are the whole column:
+ * vec3 f32 positions, of i32 health from 0 to 100, of a bool that tells
+ * whether the entity is alive, and of a u8 enum state, and shows each two
+ * ways. The bulk files are the whole column:
  *
  *	components/transform/pos	n x 12 bytes, the positions in slot order
  *	components/transform/ids	n x 4 bytes, the uint32_t entity IDs in
  *					slot order, read only
  *	components/unit/health		n x 4 bytes, the health in slot order
+ *	components/unit/alive		n x 1 byte, alive in slot order
+ *	components/unit/state		n x 1 byte, the state in slot order
  *
  * Each live entity's value also shows as a value file:
  *
  *	entities/<id>/components/transform/pos		12 bytes
  *	entities/<id>/components/unit/health		4 bytes
+ *	entities/<id>/components/unit/alive		1 byte
+ *	entities/<id>/components/unit/state		1 byte
  *
- * Both files of health have the field health of the schema unit as their
- * type, the bulk file with NINE_TYPE_BULK. A text write checks the range, and
- * a binary write or demo_set_health() does not.
+ * Both files of each column of unit have the field of the same name of the
+ * schema unit as their type, the bulk file with NINE_TYPE_BULK. A text write
+ * checks the value, and a binary write or a native setter does not.
  *
  * entities/ lists the IDs of the live entities in decimal, smallest first.
  *
@@ -38,6 +43,7 @@
  * other call to the same instance.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "ninefold.h"
@@ -59,9 +65,9 @@ void demo_free(struct demo *d);
 int demo_add_schemas(struct nine_tree *t);
 
 /*
- * demo_create() - Make a new entity, at position (0, 0, 0) and with health 0.
- * It takes the ID
- * of a destroyed entity when there is one.
+ * demo_create() - Make a new entity, at position (0, 0, 0), with health 0,
+ * not alive and in the state DEMO_IDLE. It takes the ID of a destroyed entity
+ * when there is one.
  *
  * Return: 0 with its ID in *@id, or -ENOMEM.
  */
@@ -90,6 +96,30 @@ int demo_get_health(const struct demo *d, uint32_t id, int32_t *health);
  * Return: 0 or -ENOENT.
  */
 int demo_set_health(struct demo *d, uint32_t id, int32_t health);
+
+/* demo_get_alive() - Tell whether an entity is alive. Return: 0 or -ENOENT. */
+int demo_get_alive(const struct demo *d, uint32_t id, bool *alive);
+
+/* demo_set_alive() - Set whether an entity is alive. Return: 0 or -ENOENT. */
+int demo_set_alive(struct demo *d, uint32_t id, bool alive);
+
+/* The listed values of state, which have the names idle, walk and run. */
+enum demo_state {
+	DEMO_IDLE,
+	DEMO_WALK,
+	DEMO_RUN,
+};
+
+/* demo_get_state() - Read an entity's state. Return: 0 or -ENOENT. */
+int demo_get_state(const struct demo *d, uint32_t id, uint8_t *state);
+
+/*
+ * demo_set_state() - Set an entity's state, which need not be one of enum
+ * demo_state.
+ *
+ * Return: 0 or -ENOENT.
+ */
+int demo_set_state(struct demo *d, uint32_t id, uint8_t state);
 
 /*
  * struct demo_column - The native arrays of an instance, for a plain C loop
