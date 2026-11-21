@@ -32,6 +32,21 @@ static const size_t column_sizes[NCOLUMNS] = {
 	[COLUMN_STATE] = sizeof(uint8_t),
 };
 
+static const struct nine_field transform_fields[] = {
+	{
+		.name = "pos",
+		.elem = NINE_F32,
+		.shape = NINE_VEC3,
+		.unit = "m",
+	},
+};
+
+static const struct nine_schema transform_schema = {
+	.name = "transform",
+	.fields = transform_fields,
+	.nfields = ARRAY_SIZE(transform_fields),
+};
+
 static const struct nine_enum_value states[] = {
 	{ "idle", DEMO_IDLE },
 	{ "walk", DEMO_WALK },
@@ -66,6 +81,7 @@ static const struct nine_schema unit_schema = {
 
 /* The type of each column, NULL for a column that has none. */
 static const struct nine_field *const column_types[NCOLUMNS] = {
+	[COLUMN_POS] = &transform_fields[0],
 	[COLUMN_HEALTH] = &unit_fields[0],
 	[COLUMN_ALIVE] = &unit_fields[1],
 	[COLUMN_STATE] = &unit_fields[2],
@@ -752,7 +768,12 @@ static const struct nine_file_server_ops ops = {
 
 int demo_add_schemas(struct nine_tree *t)
 {
-	return nine_add_schema(t, &unit_schema);
+	int err;
+
+	err = nine_add_schema(t, &transform_schema);
+	if (!err)
+		err = nine_add_schema(t, &unit_schema);
+	return err;
 }
 
 const struct nine_file_server_ops *demo_ops(void)

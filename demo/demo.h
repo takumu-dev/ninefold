@@ -22,9 +22,10 @@
  *	entities/<id>/components/unit/alive		1 byte
  *	entities/<id>/components/unit/state		1 byte
  *
- * Both files of each column of unit have the field of the same name of the
- * schema unit as their type, the bulk file with NINE_TYPE_BULK. A text write
- * checks the value, and a binary write or a native setter does not.
+ * Both files of each column have the field of the same name of the schema
+ * of its component, transform or unit, as their type, the bulk file with
+ * NINE_TYPE_BULK. ids has no type. A text write checks the value, and a
+ * binary write or a native setter does not.
  *
  * entities/ lists the IDs of the live entities in decimal, smallest first.
  *
