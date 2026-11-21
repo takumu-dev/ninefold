@@ -3,8 +3,9 @@
  * The demo program. It mounts two demo instances in a tree, then walks the
  * tree from / with nine_list(), nine_stat() and nine_read(). For each node
  * it prints a line with its path, its kind and its size, and after a file's
- * line, the file's bytes in hex. Then it writes a good and a bad value as
- * text to one entity's health, and prints the error and the human message.
+ * line, the type of a typed file, with the text form of a value file, and
+ * the file's bytes in hex. Then it writes a good and a bad value as text to
+ * one entity's health, and prints the error and the human message.
  */
 #include <errno.h>
 #include <inttypes.h>
@@ -54,6 +55,34 @@ static int print_file(const struct nine_handle *h, const char *path,
 	}
 	print_bytes(bytes, (size_t)n);
 	free(bytes);
+	return 0;
+}
+
+/*
+ * Print the type of a typed file, from its stat, and the text form of a
+ * value file next to it. A bulk file has no text form.
+ */
+static int print_type(const struct nine_handle *h, const char *path,
+		      const struct nine_stat *st)
+{
+	char type[NINE_TEXT_MAX], text[NINE_TEXT_MAX];
+	ptrdiff_t n, len;
+
+	if (!st->type.field)
+		return 0;
+
+	len = nine_field_text(st->type.field, type, sizeof(type));
+	if (len < 0)
+		return fail("describe", path, (int)len);
+	if (st->type.flags & NINE_TYPE_BULK) {
+		printf("    type %.*s", (int)len, type);
+		return 0;
+	}
+
+	n = nine_read_text(h, text, sizeof(text));
+	if (n < 0)
+		return fail("read", path, (int)n);
+	printf("    text %.*s, type %.*s", (int)n - 1, text, (int)len, type);
 	return 0;
 }
 
@@ -144,6 +173,9 @@ static int walk(struct nine_ns *ns, const char *path)
 	if (st.kind == NINE_DIR)
 		return walk_dir(ns, &h, path);
 
+	err = print_type(&h, path, &st);
+	if (err)
+		return err;
 	return print_file(&h, path, st.size);
 }
 

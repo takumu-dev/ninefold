@@ -48,7 +48,8 @@ add_library(ninefold STATIC
 	src/path.c
 	src/schema.c
 	src/text.c
-	src/tree.c)
+	src/tree.c
+	src/types.c)
 add_library(ninefold::ninefold ALIAS ninefold)
 target_sources(ninefold
 	PUBLIC

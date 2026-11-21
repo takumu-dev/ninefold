@@ -90,8 +90,8 @@ static int dir_lookup(void *priv, const struct nine_node *dir, const char *name,
  * Put @name of @len bytes and a NUL in @buf of @size bytes, after the *@used
  * bytes there. Return: true, or false when it does not fit.
  */
-static bool put_name(char *buf, size_t size, size_t *used, const char *name,
-		     size_t len)
+bool nine_dir_put_name(char *buf, size_t size, size_t *used, const char *name,
+		       size_t len)
 {
 	if (len >= size - *used)
 		return false;
@@ -123,7 +123,7 @@ static int dir_list(void *priv, const struct nine_node *dir, uint64_t *cursor,
 		name = name_below(dir, m, &namelen);
 		if (!name || first_with(t, dir, name, namelen) != m)
 			continue;
-		if (!put_name(buf, len, &used, name, namelen))
+		if (!nine_dir_put_name(buf, len, &used, name, namelen))
 			break;
 		n++;
 	}
