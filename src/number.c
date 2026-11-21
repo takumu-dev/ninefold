@@ -43,6 +43,18 @@
 #define ffc_parse_u64_simple nine_ffc_parse_u64_simple
 
 /* Ryu's own tables for f32, not the larger ones it shares with f64. */
+/*
+ * MSVC gives some warnings from its back end, after the code is compiled,
+ * where /external:W0 does not reach them: C4701 and C4703 for a variable
+ * that may be used before it is set, and C4702 for unreachable code. The
+ * copied code gives C4701. The back end reads the warning state at the end
+ * of each function, and it may inline the copied code into the functions
+ * below, so the warnings stay off for the whole file.
+ */
+#ifdef _MSC_VER
+#pragma warning(disable : 4701 4702 4703)
+#endif
+
 #define RYU_FLOAT_FULL_TABLE
 #include "ryu/f2s.c"
 
