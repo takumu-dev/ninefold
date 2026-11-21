@@ -7,8 +7,17 @@
 
 /* The size in bytes of each element type. */
 static const unsigned char elem_sizes[] = {
-	[NINE_I8] = 1, [NINE_I16] = 2, [NINE_I32] = 4, [NINE_I64] = 8,
-	[NINE_U8] = 1, [NINE_U16] = 2, [NINE_U32] = 4, [NINE_U64] = 8,
+	[NINE_I8] = 1,	[NINE_I16] = 2, [NINE_I32] = 4,
+	[NINE_I64] = 8, [NINE_U8] = 1,	[NINE_U16] = 2,
+	[NINE_U32] = 4, [NINE_U64] = 8, [NINE_BOOL] = 1,
+};
+
+/* The number of elements of each shape that has a text form. */
+static const unsigned char shape_counts[] = {
+	[NINE_SCALAR] = 1,
+	[NINE_VEC2] = 2,
+	[NINE_VEC3] = 3,
+	[NINE_VEC4] = 4,
 };
 
 static bool is_signed(const struct nine_field *f)
@@ -69,43 +78,114 @@ static void store(void *bin, size_t size, uint64_t v)
 	}
 }
 
+static bool is_integer(enum nine_elem e)
+{
+	return e >= NINE_I8 && e <= NINE_U64;
+}
+
+/* A bool and an enum are scalars, and an integer may be a vector too. */
 bool nine_value_has_text(const struct nine_field *f)
 {
-	return f->elem >= NINE_I8 && f->elem <= NINE_U64 &&
-	       f->shape == NINE_SCALAR && !f->values;
+	if (f->elem == NINE_BOOL)
+		return f->shape == NINE_SCALAR && !f->values;
+	if (!is_integer(f->elem))
+		return false;
+	if (f->values)
+		return f->shape == NINE_SCALAR;
+
+	return f->shape == NINE_SCALAR || f->shape == NINE_VEC2 ||
+	       f->shape == NINE_VEC3 || f->shape == NINE_VEC4;
 }
 
 size_t nine_value_size(const struct nine_field *f)
 {
-	return elem_sizes[f->elem];
+	return elem_sizes[f->elem] * shape_counts[f->shape];
 }
 
-ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
-			    char *buf, size_t len)
+/* Give @buf of @len bytes the @n bytes at @s and a newline. */
+static ptrdiff_t put_line(char *buf, size_t len, const char *s, size_t n)
 {
-	char text[sizeof("-9223372036854775808\n")];
-	char *end = text + sizeof(text);
-	char *p = end;
-	size_t size = nine_value_size(f);
+	if (n >= len)
+		return -ERANGE;
+
+	memcpy(buf, s, n);
+	buf[n] = '\n';
+	return (ptrdiff_t)n + 1;
+}
+
+/*
+ * Write the decimal form of the integer at @bin so that it ends just before
+ * @end. Return: where it starts.
+ */
+static char *format_int(const struct nine_field *f, const void *bin, char *end)
+{
+	size_t size = elem_sizes[f->elem];
 	uint64_t mag = load(bin, size);
 	bool neg = is_signed(f) && mag >> (8 * size - 1);
+	char *p = end;
 
 	if (neg)
 		mag = (0 - mag) & unsigned_max(size);
 
-	*--p = '\n';
 	do {
 		*--p = (char)('0' + mag % 10);
 		mag /= 10;
 	} while (mag);
 	if (neg)
 		*--p = '-';
+	return p;
+}
 
-	if ((size_t)(end - p) > len)
-		return -ERANGE;
+/* The first name of @f listed for the integer at @bin, or NULL for none. */
+static const char *enum_name(const struct nine_field *f, const void *bin)
+{
+	size_t size = elem_sizes[f->elem];
+	uint64_t sign = (uint64_t)1 << (8 * size - 1);
+	uint64_t bits = load(bin, size);
+	const struct nine_enum_value *e;
+	size_t i;
 
-	memcpy(buf, p, (size_t)(end - p));
-	return end - p;
+	/* Compare as 64-bit patterns, so sign-extend a signed value. */
+	if (is_signed(f))
+		bits = (bits ^ sign) - sign;
+
+	for (i = 0; i < f->nvalues; i++) {
+		e = &f->values[i];
+		if ((uint64_t)e->value == bits &&
+		    (is_signed(f) || e->value >= 0))
+			return e->name;
+	}
+	return NULL;
+}
+
+ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
+			    char *buf, size_t len)
+{
+	char text[4 * sizeof("-9223372036854775808")];
+	char *end = text + sizeof(text);
+	size_t size = elem_sizes[f->elem];
+	const char *name;
+	char *p = end;
+	size_t i;
+
+	if (f->elem == NINE_BOOL) {
+		if (*(const unsigned char *)bin)
+			return put_line(buf, len, "true", 4);
+		return put_line(buf, len, "false", 5);
+	}
+	if (f->values) {
+		name = enum_name(f, bin);
+		if (name)
+			return put_line(buf, len, name, strlen(name));
+	}
+
+	/* format_int() writes backwards, so the last element comes first. */
+	for (i = shape_counts[f->shape]; i-- > 0;) {
+		p = format_int(f, (const char *)bin + i * size, p);
+		if (i)
+			*--p = ' ';
+	}
+	return put_line(buf, len, p, (size_t)(end - p));
 }
 
 /* Parse @n decimal digits with no zero before the first non-zero digit. */
@@ -132,7 +212,7 @@ static bool parse_digits(const char *s, size_t n, uint64_t *v)
 /* Tell whether the value of sign @neg and magnitude @mag fits in @f. */
 static bool fits(const struct nine_field *f, bool neg, uint64_t mag)
 {
-	uint64_t max = unsigned_max(nine_value_size(f));
+	uint64_t max = unsigned_max(elem_sizes[f->elem]);
 
 	if (!is_signed(f))
 		return !neg && mag <= max;
@@ -158,14 +238,49 @@ static bool in_range(const struct nine_field *f, bool neg, uint64_t mag)
 	       (v >= f->range.i.min && v <= f->range.i.max);
 }
 
-int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
+/* Tell whether the @len bytes at @text are the NUL-terminated @s. */
+static bool text_is(const char *text, size_t len, const char *s)
+{
+	return strlen(s) == len && !memcmp(text, s, len);
+}
+
+static int parse_bool(const char *text, size_t len, void *bin)
+{
+	unsigned char v;
+
+	if (text_is(text, len, "true"))
+		v = 1;
+	else if (text_is(text, len, "false"))
+		v = 0;
+	else
+		return -EINVAL;
+
+	memcpy(bin, &v, 1);
+	return 0;
+}
+
+/* Only a listed name is accepted, never a number. */
+static int parse_enum(const struct nine_field *f, const char *text, size_t len,
+		      void *bin)
+{
+	size_t i;
+
+	for (i = 0; i < f->nvalues; i++) {
+		if (text_is(text, len, f->values[i].name)) {
+			store(bin, elem_sizes[f->elem],
+			      (uint64_t)f->values[i].value);
+			return 0;
+		}
+	}
+	return -EINVAL;
+}
+
+static int parse_int(const struct nine_field *f, const char *text, size_t len,
 		     void *bin)
 {
 	bool neg = false;
 	uint64_t mag;
 
-	if (len && text[len - 1] == '\n')
-		len--;
 	if (len && text[0] == '-') {
 		neg = true;
 		text++;
@@ -176,6 +291,46 @@ int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
 	if (!fits(f, neg, mag) || !in_range(f, neg, mag))
 		return -EINVAL;
 
-	store(bin, nine_value_size(f), neg ? 0 - mag : mag);
+	store(bin, elem_sizes[f->elem], neg ? 0 - mag : mag);
 	return 0;
+}
+
+/* Parse the elements of an integer, with one space between them. */
+static int parse_ints(const struct nine_field *f, const char *text, size_t len,
+		      void *bin)
+{
+	size_t n = shape_counts[f->shape], size = elem_sizes[f->elem];
+	const char *space;
+	size_t i, elen;
+	int err;
+
+	for (i = 0; i < n; i++) {
+		/* Each element but the last ends at a space. */
+		space = len ? memchr(text, ' ', len) : NULL;
+		if (!space != (i == n - 1))
+			return -EINVAL;
+
+		elen = space ? (size_t)(space - text) : len;
+		err = parse_int(f, text, elen, (char *)bin + i * size);
+		if (err)
+			return err;
+		if (space) {
+			text += elen + 1;
+			len -= elen + 1;
+		}
+	}
+	return 0;
+}
+
+int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
+		     void *bin)
+{
+	if (len && text[len - 1] == '\n')
+		len--;
+
+	if (f->elem == NINE_BOOL)
+		return parse_bool(text, len, bin);
+	if (f->values)
+		return parse_enum(f, text, len, bin);
+	return parse_ints(f, text, len, bin);
 }
