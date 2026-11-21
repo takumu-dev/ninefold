@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -149,7 +150,7 @@ static void test_schema_added_after_the_mount(void)
 static void check_line(const struct nine_field *f, const char *want)
 {
 	const struct nine_schema s = { .name = "s", .fields = f, .nfields = 1 };
-	char path[64] = "/types/s/";
+	char path[64];
 	size_t len = strlen(want);
 	char buf[NINE_TEXT_MAX];
 	struct nine_tree *t;
@@ -160,7 +161,7 @@ static void check_line(const struct nine_field *f, const char *want)
 	CHECK_MEM(buf, want, len);
 
 	t = types_tree(&s);
-	strcat(path, f->name);
+	snprintf(path, sizeof(path), "/types/s/%s", f->name);
 	h = open_path(t, path, NINE_RDONLY);
 	CHECK_INT(nine_stat(&h, &st), ==, 0);
 	CHECK_INT(st.kind, ==, NINE_FILE);
