@@ -1,6 +1,6 @@
 # The smoke test of the demo program: it runs PROGRAM and passes when the
-# program exits with 0 and prints each line below: one for each node, and
-# the results of its text writes.
+# program exits with 0 and prints each line below: one for each node, the
+# types of the typed files, and the results of its text writes.
 #
 #	cmake -DPROGRAM=<path> -P smoke.cmake
 
@@ -10,9 +10,11 @@ set(lines
 	"/world/components/transform/pos file 36"
 	"/world/components/transform/ids file 12"
 	"/world/components/unit/health file 12"
+	"    type i32 range=0..100 message=Health must be from 0 to 100."
 	"/world/entities dir 0"
 	"/world/entities/0/components/transform/pos file 12"
 	"/world/entities/0/components/unit/health file 4"
+	"    text 0, type i32 range=0..100 message=Health must be from 0 to 100."
 	"/world/entities/2/components/transform/pos file 12"
 	"/world/entities/3/components/transform/pos file 12"
 	"/sandbox dir 0"
