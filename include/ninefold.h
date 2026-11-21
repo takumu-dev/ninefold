@@ -413,7 +413,7 @@ int nine_mount_types(struct nine_tree *t, const char *path);
  *	enum u8 values=idle:0,walk:1,run:2
  *
  * A message or a unit has no length limit, so the line can be longer than
- * NINE_TEXT_MAX. The range of an f32 or an f64 field is not in the line yet.
+ * NINE_TEXT_MAX. The range of an f64 field is not in the line yet.
  *
  * Context: Any thread.
  *

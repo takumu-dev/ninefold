@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ninefold.h"
@@ -9,6 +11,12 @@
 #include "recorder.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+/*
+ * Made at run time. The macro INFINITY is a constant expression that
+ * overflows, and some compilers warn of it.
+ */
+static double pos_inf;
 
 struct fixture {
 	struct nine_tree *t;
@@ -648,6 +656,291 @@ static void test_longest_vector_line(void)
 	fixture_free(&f);
 }
 
+static void test_f32_round_trip(void)
+{
+	CHECK_ROUND_TRIP(NINE_F32, float, "0", 0.0f);
+	CHECK_ROUND_TRIP(NINE_F32, float, "0.1", 0.1f);
+	CHECK_ROUND_TRIP(NINE_F32, float, "1.5", 1.5f);
+	CHECK_ROUND_TRIP(NINE_F32, float, "-2", -2.0f);
+	CHECK_ROUND_TRIP(NINE_F32, float, "100", 100.0f);
+	CHECK_ROUND_TRIP(NINE_F32, float, "123.456", 123.456f);
+}
+
+#define CHECK_F32(text, bits) CHECK_ROUND_TRIP(NINE_F32, uint32_t, text, bits)
+
+/*
+ * The forms of zero and infinity, the limits of the type, and each side of
+ * the bounds of the decimal layout, 1e-4 and 1e9, as bit patterns.
+ */
+static void test_f32_edge_values(void)
+{
+	CHECK_F32("-0", 0x80000000);
+	CHECK_F32("inf", 0x7f800000);
+	CHECK_F32("-inf", 0xff800000);
+	CHECK_F32("1e-45", 0x00000001);
+	CHECK_F32("-1e-45", 0x80000001);
+	CHECK_F32("1.1754942e-38", 0x007fffff);
+	CHECK_F32("1.1754944e-38", 0x00800000);
+	CHECK_F32("3.4028235e38", 0x7f7fffff);
+	CHECK_F32("-3.4028235e38", 0xff7fffff);
+	CHECK_F32("9.999999e-5", 0x38d1b716);
+	CHECK_F32("0.0001", 0x38d1b717);
+	CHECK_F32("0.000100000005", 0x38d1b718);
+	CHECK_F32("1e-5", 0x3727c5ac);
+	CHECK_F32("0.3", 0x3e99999a);
+	CHECK_F32("16777216", 0x4b800000);
+	CHECK_F32("100000000", 0x4cbebc20);
+	CHECK_F32("123456790", 0x4ceb79a3);
+	CHECK_F32("999999940", 0x4e6e6b27);
+	CHECK_F32("1e9", 0x4e6e6b28);
+	CHECK_F32("1.00000006e9", 0x4e6e6b29);
+}
+
+/* A xorshift generator, so that each run checks the same values. */
+static uint32_t next_random(uint32_t *state)
+{
+	*state ^= *state << 13;
+	*state ^= *state >> 17;
+	*state ^= *state << 5;
+	return *state;
+}
+
+static bool f32_is_nan(uint32_t bits)
+{
+	return (bits & 0x7fffffff) > 0x7f800000;
+}
+
+/*
+ * Random bit patterns read as text, and the text written back gives the
+ * same bits, which read as the same text. Every NaN reads as nan, and a
+ * write of nan stores one quiet NaN.
+ */
+static void test_f32_random_bit_patterns(void)
+{
+	const struct nine_field field = { .name = "v", .elem = NINE_F32 };
+	const uint32_t quiet_nan = 0x7fc00000;
+	char text[NINE_TEXT_MAX], again[NINE_TEXT_MAX];
+	uint32_t state = 2463534242u, bits;
+	ptrdiff_t len;
+	struct fixture f;
+	long i;
+
+	fixture_init(&f, &field, sizeof(bits));
+	for (i = 0; i < 200000; i++) {
+		bits = next_random(&state);
+		/* One pattern in eight is a NaN, so that NaNs come up often. */
+		if (!(bits & 7))
+			bits |= 0x7f800001;
+		memcpy(f.r.value, &bits, sizeof(bits));
+		len = nine_read_text(&f.h, text, sizeof(text));
+		CHECK_INT(len, >, 1);
+		CHECK_INT(len, <=, 16);
+		if (f32_is_nan(bits)) {
+			CHECK_MEM(text, "nan\n", 4);
+			bits = quiet_nan;
+		}
+
+		memset(f.r.value, 0, sizeof(bits));
+		CHECK_INT(nine_write_text(&f.h, text, (size_t)len), ==, 0);
+		CHECK_MEM(f.r.value, &bits, sizeof(bits));
+		CHECK_INT(nine_read_text(&f.h, again, sizeof(again)), ==, len);
+		CHECK_MEM(again, text, (size_t)len);
+		f.r.ncalls = 0;
+	}
+	fixture_free(&f);
+}
+
+/* The float forms that a read never gives. */
+static void test_f32_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	 "\n",	  "-",	      "+1",	   "+0.5",    ".5",
+		"-.5",	 "5.",	  "5.e3",     "1E3",	   "1e+3",    "1e",
+		"1e-",	 "1e07",  "1e-0",     "1e--3",	   "1e3.5",   "01",
+		"00.5",	 "-01.5", "1.5.2",    "1..5",	   "1,5",     "--1",
+		"1m",	 "1.5 m", " 1",	      "1 ",	   "\t1",     "1\t",
+		"1\r\n", "1\n\n", "\n1",      "0x10",	   "0x1p3",   "-0x1",
+		"NaN",	 "NAN",	  "-nan",     "+nan",	   "nan\n\n", "Inf",
+		"INF",	 "+inf",  "infinity", "-infinity", "1f",      "1.5f",
+		"abc",	 "e3",
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F32 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 4, forms[i], strlen(forms[i]));
+	check_refused(&field, 4, "1.5\0", 4);
+}
+
+/* A write needs no shortest form, and a read then gives the shortest. */
+static void test_f32_longer_forms(void)
+{
+	static const struct {
+		const char *text;
+		uint32_t bits;
+		const char *line;
+	} forms[] = {
+		{ "2.0", 0x40000000, "2\n" },
+		{ "2.50", 0x40200000, "2.5\n" },
+		{ "0.000", 0x00000000, "0\n" },
+		{ "-0.0", 0x80000000, "-0\n" },
+		{ "0e99999", 0x00000000, "0\n" },
+		{ "25e-1", 0x40200000, "2.5\n" },
+		{ "1e0", 0x3f800000, "1\n" },
+		{ "0.100000001490116119384765625", 0x3dcccccd, "0.1\n" },
+		{ "3.4028235677e38", 0x7f7fffff, "3.4028235e38\n" },
+		{ "7.1e-46", 0x00000001, "1e-45\n" },
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F32 };
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+	size_t i, n;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++) {
+		fixture_init(&f, &field, 4);
+		CHECK_INT(nine_write_text(&f.h, forms[i].text,
+					  strlen(forms[i].text)),
+			  ==, 0);
+		CHECK_MEM(f.r.value, &forms[i].bits, 4);
+		n = strlen(forms[i].line);
+		CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, n);
+		CHECK_MEM(buf, forms[i].line, n);
+		fixture_free(&f);
+	}
+}
+
+/*
+ * Too large for an f32, or not zero but rounds to zero. 3.4028236e38 is just
+ * past half way from the largest f32 to 2^128, and 7e-46 is just short of
+ * half the smallest one.
+ */
+static void test_f32_out_of_range(void)
+{
+	static const char *const forms[] = {
+		"3.4028236e38",
+		"-3.5e38",
+		"1e39",
+		"340282360000000000000000000000000000000",
+		"1e99999999999999999999",
+		"7e-46",
+		"-1e-50",
+		"0.000000000000000000000000000000000000000000000000001",
+		"1e-99999999999999999999",
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F32 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 4, forms[i], strlen(forms[i]));
+}
+
+/* Each limit becomes an f32 first, so the f32 nearest 0.1 is in range. */
+static void test_f32_limit_in_the_element_type(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F32,
+					  .range.f = { 0, 0.1 } };
+
+	check_accepted(&field, 4, "0.1");
+	check_accepted(&field, 4, "0");
+	check_accepted(&field, 4, "-0");
+	check_accepted(&field, 4, "0.05");
+	check_refused(&field, 4, "0.10000001", 10);
+	check_refused(&field, 4, "-1e-45", 6);
+	check_refused(&field, 4, "1", 1);
+}
+
+/* A range refuses nan, and an infinity unless a limit is that infinity. */
+static void test_f32_range_and_special_values(void)
+{
+	const struct nine_field finite = { .name = "v",
+					   .elem = NINE_F32,
+					   .range.f = { -1, 1 } };
+	const struct nine_field upper = { .name = "v",
+					  .elem = NINE_F32,
+					  .range.f = { 0, pos_inf } };
+	const struct nine_field none = { .name = "v", .elem = NINE_F32 };
+
+	check_refused(&finite, 4, "nan", 3);
+	check_refused(&finite, 4, "inf", 3);
+	check_refused(&finite, 4, "-inf", 4);
+	check_accepted(&finite, 4, "-1");
+	check_accepted(&finite, 4, "1");
+	check_refused(&upper, 4, "nan", 3);
+	check_accepted(&upper, 4, "inf");
+	check_refused(&upper, 4, "-inf", 4);
+	check_accepted(&upper, 4, "3.4028235e38");
+	check_accepted(&none, 4, "nan");
+	check_accepted(&none, 4, "inf");
+	check_accepted(&none, 4, "-inf");
+}
+
+static void test_f32_vectors(void)
+{
+	CHECK_VECTORS(NINE_F32, float, 1.5f, -0.25f, 1e-7f, 3e9f, "1.5",
+		      "-0.25", "1e-7", "3e9");
+	CHECK_VECTORS(NINE_F32, float, 0.0f, -0.0f, (float)pos_inf,
+		      (float)-pos_inf, "0", "-0", "inf", "-inf");
+}
+
+#define F32_LONGEST_TEXT "-1.16047665e-36"
+
+/* The longest f32 line: a vec4 of numbers with nine digits and a sign. */
+static void test_f32_longest_vector_line(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F32,
+					  .shape = NINE_VEC4 };
+	const uint32_t values[] = { 0x83c571e3, 0x83c571e3, 0x83c571e3,
+				    0x83c571e3 };
+	static const char line[] =
+		F32_LONGEST_TEXT " " F32_LONGEST_TEXT " " F32_LONGEST_TEXT
+				 " " F32_LONGEST_TEXT "\n";
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+
+	fixture_init(&f, &field, sizeof(values));
+	memcpy(f.r.value, values, sizeof(values));
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(line) - 2), ==, -ERANGE);
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, sizeof(line) - 1);
+	CHECK_MEM(buf, line, sizeof(line) - 1);
+	fixture_free(&f);
+}
+
+/* The forms of a vec3 of f32 that a read never gives. */
+static void test_f32_vector_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"1 2",	    "1 2 3 4",	 "1  2 3",  " 1 2 3",  "1 2 3 ",
+		"1,2,3",    "1 2 .3",	 "1 2 3.",  "1 +2 3",  "1 2 3m",
+		"1 nan, 3", "1 2 1E3",	 "1\t2 3",  "1 2\n3",  "1 2 3\n\n",
+		"1 2 1e39", "1 1e-46 3", "1 Inf 3", "1.5 2.5", "1 2 0x3",
+	};
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F32,
+					  .shape = NINE_VEC3 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 12, forms[i], strlen(forms[i]));
+}
+
+/* The range binds each element of a vector, nan in any of them too. */
+static void test_f32_vector_range(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F32,
+					  .shape = NINE_VEC2,
+					  .range.f = { -1, 1 } };
+	const float limits[] = { -1.0f, 1.0f };
+
+	check_field_round_trip(&field, limits, sizeof(limits), "-1 1");
+	check_refused(&field, 8, "0 1.5", 5);
+	check_refused(&field, 8, "-1.5 0", 6);
+	check_refused(&field, 8, "nan 0", 5);
+	check_refused(&field, 8, "0 nan", 5);
+}
+
 /* The file server got exactly the @n calls of @ops, in order. */
 static void check_calls(const struct recorder *r, size_t n,
 			const enum recorder_op *ops)
@@ -899,6 +1192,8 @@ static void test_add_schema(void)
 
 int main(void)
 {
+	pos_inf = strtod("inf", NULL);
+
 	test_read_gives_the_line();
 	test_round_trip_of_each_integer_type();
 	test_write_takes_a_slice();
@@ -924,6 +1219,18 @@ int main(void)
 	test_vector_read_ignores_the_range();
 	test_vector_of_the_wrong_size_is_eio();
 	test_longest_vector_line();
+	test_f32_round_trip();
+	test_f32_edge_values();
+	test_f32_random_bit_patterns();
+	test_f32_refused_forms();
+	test_f32_longer_forms();
+	test_f32_out_of_range();
+	test_f32_limit_in_the_element_type();
+	test_f32_range_and_special_values();
+	test_f32_vectors();
+	test_f32_longest_vector_line();
+	test_f32_vector_refused_forms();
+	test_f32_vector_range();
 	test_ebadf_comes_before_stat();
 	test_stat_error_is_returned_unchanged();
 	test_untyped_file_has_no_text_form();

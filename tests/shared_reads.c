@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "ninefold.h"
 
@@ -94,11 +95,21 @@ static void read_values(const struct world *w)
 	}
 }
 
-/* Read each entity's health as text, through a handle of this thread's own. */
+/* The text of the position of each entity, from start_pos(). */
+static const char *const pos_lines[NENTITIES] = {
+	"0.5 -0 0.25\n",    "1.5 -10 100.25\n", "2.5 -20 200.25\n",
+	"3.5 -30 300.25\n", "4.5 -40 400.25\n", "5.5 -50 500.25\n",
+};
+
+/*
+ * Read each entity's health and position as text, through handles of this
+ * thread's own, and its position through the shared handles too.
+ */
 static void read_text(const struct world *w)
 {
 	char path[64], want[2], buf[NINE_TEXT_MAX];
 	struct nine_handle h;
+	size_t len;
 	int i;
 
 	for (i = 0; i < NENTITIES; i++) {
@@ -111,6 +122,13 @@ static void read_text(const struct world *w)
 		CHECK_INT(nine_read_text(&h, buf, sizeof(buf)), ==,
 			  sizeof(want));
 		CHECK_MEM(buf, want, sizeof(want));
+
+		len = strlen(pos_lines[i]);
+		open_entity_pos(w->ns, w->ids[i], &h);
+		CHECK_INT(nine_read_text(&h, buf, sizeof(buf)), ==, len);
+		CHECK_MEM(buf, pos_lines[i], len);
+		CHECK_INT(nine_read_text(&w->hs[i], buf, sizeof(buf)), ==, len);
+		CHECK_MEM(buf, pos_lines[i], len);
 	}
 }
 

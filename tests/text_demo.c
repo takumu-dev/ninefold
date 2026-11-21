@@ -373,6 +373,121 @@ static void test_unit_follows_its_entity(void)
 	world_free(&w);
 }
 
+/* Open the value file of pos of an entity. */
+static void open_pos(struct world *w, uint32_t id, int mode,
+		     struct nine_handle *h)
+{
+	char path[64];
+
+	snprintf(path, sizeof(path),
+		 "/world/entities/%lu/components/transform/pos",
+		 (unsigned long)id);
+	CHECK_INT(nine_open(w->ns, path, mode, h), ==, 0);
+}
+
+static void check_pos(const struct world *w, uint32_t id, const float want[3])
+{
+	float got[3];
+
+	CHECK_INT(demo_get_pos(w->d, id, got), ==, 0);
+	CHECK_MEM(got, want, sizeof(got));
+}
+
+/* Both files of pos have its field, a vec3 of f32 in metres. */
+static void test_pos_is_typed(void)
+{
+	static const char line[] = "vec3 f32 unit=m\n";
+	struct nine_handle bulk, entity;
+	struct nine_stat st, entity_st;
+	char buf[NINE_TEXT_MAX];
+	struct world w;
+
+	world_init(&w, 2);
+	CHECK_INT(nine_open(w.ns, "/world/components/transform/pos", NINE_RDWR,
+			    &bulk),
+		  ==, 0);
+	open_pos(&w, 1, NINE_RDONLY, &entity);
+	CHECK_INT(nine_stat(&entity, &entity_st), ==, 0);
+	CHECK_STR(entity_st.type.field->name, "pos");
+	CHECK_INT(entity_st.type.field->elem, ==, NINE_F32);
+	CHECK_INT(entity_st.type.field->shape, ==, NINE_VEC3);
+	CHECK_STR(entity_st.type.field->unit, "m");
+	CHECK_PTR(entity_st.type.field->message, ==, NULL);
+	CHECK_UINT(entity_st.size, ==, 3 * sizeof(float));
+	CHECK_UINT(entity_st.type.flags, ==, 0);
+	CHECK_INT(nine_field_text(entity_st.type.field, buf, sizeof(buf)), ==,
+		  sizeof(line) - 1);
+	CHECK_MEM(buf, line, sizeof(line) - 1);
+
+	CHECK_INT(nine_stat(&bulk, &st), ==, 0);
+	CHECK_PTR(st.type.field, ==, entity_st.type.field);
+	CHECK_UINT(st.type.flags, ==, NINE_TYPE_BULK);
+	CHECK_UINT(st.size, ==, 2 * 3 * sizeof(float));
+	CHECK_INT(nine_read_text(&bulk, buf, sizeof(buf)), ==, -ENOTSUP);
+	world_free(&w);
+}
+
+static void test_pos_round_trip(void)
+{
+	static const float zero[3] = { 0 };
+	static const float want[3] = { 1.5f, -2.0f, 0.1f };
+	struct nine_handle h;
+	struct world w;
+	float binary[3];
+
+	world_init(&w, 2);
+	open_pos(&w, 1, NINE_RDWR, &h);
+	check_text(&h, "0 0 0\n");
+
+	CHECK_INT(nine_write_text(&h, "1.5 -2.0 0.1\n", 13), ==, 0);
+	check_text(&h, "1.5 -2 0.1\n");
+	check_pos(&w, 1, want);
+	check_pos(&w, 0, zero);
+
+	/* One handle serves both forms, with the native bytes. */
+	CHECK_INT(nine_read(&h, binary, sizeof(binary), 0), ==, sizeof(binary));
+	CHECK_MEM(binary, want, sizeof(want));
+	world_free(&w);
+}
+
+/* A bad pos changes no element, and pos has no message to give. */
+static void test_bad_pos_changes_nothing(void)
+{
+	static const float want[3] = { 1.0f, 2.0f, 3.0f };
+	static const char *const bad[] = { "4 5", "4 5 6 7", "4 5 1e39",
+					   "4,5,6", "4 5 6m" };
+	struct nine_handle h;
+	struct nine_stat st;
+	struct world w;
+	size_t i;
+
+	world_init(&w, 1);
+	CHECK_INT(demo_set_pos(w.d, 0, want), ==, 0);
+	open_pos(&w, 0, NINE_RDWR, &h);
+	for (i = 0; i < ARRAY_SIZE(bad); i++) {
+		CHECK_INT(nine_write_text(&h, bad[i], strlen(bad[i])), ==,
+			  -EINVAL);
+		check_pos(&w, 0, want);
+	}
+	CHECK_INT(nine_stat(&h, &st), ==, 0);
+	CHECK_PTR(st.type.field->message, ==, NULL);
+	world_free(&w);
+}
+
+/* A native value with no short form reads as its shortest digits. */
+static void test_native_pos_shows_in_text(void)
+{
+	const float pos[3] = { 1.0f / 3.0f, -1e-7f, 3e9f };
+	struct nine_handle h;
+	struct world w;
+
+	world_init(&w, 1);
+	CHECK_INT(demo_set_pos(w.d, 0, pos), ==, 0);
+	open_pos(&w, 0, NINE_RDONLY, &h);
+	check_text(&h, "0.33333334 -1e-7 3e9\n");
+	world_free(&w);
+}
+
 int main(void)
 {
 	test_text_round_trip();
@@ -388,5 +503,9 @@ int main(void)
 	test_unlisted_state_shows_as_number();
 	test_new_columns_are_typed();
 	test_unit_follows_its_entity();
+	test_pos_is_typed();
+	test_pos_round_trip();
+	test_bad_pos_changes_nothing();
+	test_native_pos_shows_in_text();
 	return 0;
 }

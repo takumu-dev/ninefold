@@ -91,10 +91,12 @@ workflows:
             --cmake 3.25.3
             d4d2ba83301b215857d3b6590cd4434a414fa151c5807693abe587bd6c03581e
           presets: gcc-debug gcc-release
+      # A German locale, whose decimal separator is a comma, lets the text
+      # locale test run here and not skip.
       - linux:
           name: clang
           image: ubuntu:26.04
-          tools: --llvm 23
+          tools: --llvm 23 language-pack-de-base
           presets: clang-debug clang-release
       - linux:
           name: asan

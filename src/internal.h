@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "ninefold.h"
 
@@ -70,5 +71,23 @@ ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
 			    char *buf, size_t len);
 int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
 		     void *bin);
+
+/* The longest text of an f32, such as -1.16047665e-36 or -0.000100000005. */
+#define NINE_F32_TEXT_MAX 15
+
+/*
+ * nine_f32_format() - Write the text of the f32 whose bit pattern is @bits
+ * to @buf, which has room for NINE_F32_TEXT_MAX bytes, with no newline.
+ * Return: the number of bytes.
+ */
+size_t nine_f32_format(uint32_t bits, char *buf);
+
+/*
+ * nine_f32_parse() - Parse the @len bytes at @text, a whole number with no
+ * newline, into @v. A NaN becomes one quiet NaN.
+ * Return: 0, or -EINVAL for bad syntax, a value too large for an f32, or a
+ * value that is not zero but becomes zero.
+ */
+int nine_f32_parse(const char *text, size_t len, float *v);
 
 #endif /* NINEFOLD_INTERNAL_H */

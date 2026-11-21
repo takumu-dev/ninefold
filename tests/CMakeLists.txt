@@ -35,8 +35,19 @@ ninefold_add_test(variant)
 ninefold_add_test(column)
 ninefold_add_test(text)
 ninefold_add_test(text_demo)
+ninefold_add_test(text_locale)
+# It needs a locale with a decimal comma, which not every system has.
+set_tests_properties(text_locale PROPERTIES SKIP_RETURN_CODE 77)
 ninefold_add_test(schema)
 ninefold_add_test(types)
+
+# The licence check of the copied files passes on them, and fails on copies
+# of them with the wrong licence.
+add_test(NAME licences
+	COMMAND ${CMAKE_COMMAND}
+		-DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+		-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/licences
+		-P ${CMAKE_CURRENT_SOURCE_DIR}/licences.cmake)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)
