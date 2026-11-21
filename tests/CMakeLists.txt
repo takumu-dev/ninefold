@@ -36,6 +36,7 @@ ninefold_add_test(column)
 ninefold_add_test(text)
 ninefold_add_test(text_demo)
 ninefold_add_test(schema)
+ninefold_add_test(types)
 
 if(PROJECT_IS_TOP_LEVEL)
 	add_executable(test_cxx_header cxx/header.cpp)
