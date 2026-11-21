@@ -181,7 +181,7 @@
     },
     {
       "name": "lint",
-      "displayName": "Formatting check and checkpatch, with no compiler",
+      "displayName": "Formatting check, checkpatch and licence check, with no compiler",
       "inherits": [
         "base"
       ],
@@ -232,7 +232,8 @@
       "configurePreset": "lint",
       "targets": [
         "check-format",
-        "checkpatch"
+        "checkpatch",
+        "check-licences"
       ],
       "nativeToolOptions": [
         "-k",

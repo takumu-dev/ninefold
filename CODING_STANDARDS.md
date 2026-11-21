@@ -60,7 +60,8 @@ public API uses `<stdint.h>` types.
    */
   ```
 
-- Every `.c` and `.h` file starts with this line:
+- Every `.c` and `.h` file starts with this line, except the copies of
+  other projects' code in `third_party/`:
 
   ```c
   /* SPDX-License-Identifier: Zlib */
@@ -75,15 +76,22 @@ kernel commit into the build directory. Any checkpatch warning is a
 failure, and each `--ignore` in that file carries a comment giving its
 reason.
 
+None of these tools looks in `third_party/`, whose files stay as their
+authors wrote them. A licence check stands in for them there: each copied
+source file must grant the Boost Software License 1.0, the only licence
+the core takes copied code under, and each project's directory must hold
+its text.
+
 From a configured build directory:
 
 ```sh
 cmake --build build/<preset> --target format        # reformat every source file
 cmake --build build/<preset> --target check-format  # list unformatted files
 cmake --build build/<preset> --target checkpatch    # run checkpatch on every .c and .h file
+cmake --build build/<preset> --target check-licences # check the licences of the copied files
 ```
 
-To run both checks as CI does:
+To run the three checks as CI does:
 
 ```sh
 cmake --workflow --preset lint

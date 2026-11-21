@@ -48,7 +48,7 @@ cmake --workflow --preset gcc-debug
 | `asan` | Clang | Debug, with AddressSanitizer and UndefinedBehaviorSanitizer |
 | `tsan` | Clang | Debug, with ThreadSanitizer |
 | `msvc-asan` | MSVC | RelWithDebInfo, with AddressSanitizer |
-| `lint` | None | Checks the formatting and runs checkpatch |
+| `lint` | None | Checks the formatting, runs checkpatch and checks the licences of the copied files |
 
 Each preset builds in `build/<preset>`. The presets treat warnings as
 errors. A plain CMake build doesn't, so a newer compiler with a new warning
@@ -120,5 +120,13 @@ differently, so use 22.1.8 to format code for Ninefold.
 Ninefold is available under the Zlib licence, in [`LICENSE`](LICENSE). The
 licence covers every file in this repository except the files in
 [`branding/`](branding/), such as the logos, which are not licensed for
-any use.
-Any third-party file copied into the repository keeps its own licence.
+any use, and the files in [`third_party/`](third_party/).
+
+The files in `third_party/` are copies of the number code of two other
+projects, [Ryu](https://github.com/ulfjack/ryu) and
+[ffc.h](https://github.com/kolemannix/ffc.h), which the library builds in.
+They keep their own licence, the Boost Software License 1.0, whose text is
+beside them. It puts no condition on object code, so an app that links
+Ninefold needs no notice for them. [`third_party/README.md`](third_party/README.md)
+says which files come from which commit. An install puts the licence texts
+in `share/doc/ninefold`.

@@ -45,12 +45,18 @@ endif()
 add_library(ninefold STATIC
 	src/dirs.c
 	src/handle.c
+	src/number.c
 	src/path.c
 	src/schema.c
 	src/text.c
 	src/tree.c
 	src/types.c)
 add_library(ninefold::ninefold ALIAS ninefold)
+# The copied number code, built by src/number.c only. As system headers, its
+# warnings are its authors' to fix, not ours, so they never fail a build.
+target_include_directories(ninefold SYSTEM PRIVATE
+	third_party/ryu
+	third_party/ffc)
 target_sources(ninefold
 	PUBLIC
 		FILE_SET HEADERS
@@ -99,4 +105,14 @@ if(NINEFOLD_INSTALL)
 			${PROJECT_BINARY_DIR}/ninefold-config.cmake
 			${PROJECT_BINARY_DIR}/ninefold-config-version.cmake
 		DESTINATION ${config_dir})
+
+	# The library holds the copied number code, so its licence goes with
+	# the library's own.
+	install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
+	install(FILES third_party/README.md
+		DESTINATION ${CMAKE_INSTALL_DOCDIR}/third_party)
+	install(FILES third_party/ryu/LICENSE-Boost
+		DESTINATION ${CMAKE_INSTALL_DOCDIR}/third_party/ryu)
+	install(FILES third_party/ffc/LICENSE-BOOST
+		DESTINATION ${CMAKE_INSTALL_DOCDIR}/third_party/ffc)
 endif()

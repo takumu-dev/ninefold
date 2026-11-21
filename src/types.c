@@ -97,7 +97,7 @@ static void store(void *bin, size_t size, uint64_t v)
 }
 
 /*
- * Add the integer of element type @e whose bit pattern is @v, in the text
+ * Add the number of element type @e whose bit pattern is @v, in the text
  * form of @e: the text of a scalar of that type, without its newline.
  */
 static void put_number(struct line *l, enum nine_elem e, uint64_t v)
@@ -140,19 +140,35 @@ static void put_values(struct line *l, const struct nine_field *f)
 	}
 }
 
+/* Add the limit @v of an f32, as the f32 it becomes, in its text form. */
+static void put_f32(struct line *l, double v)
+{
+	float f = (float)v;
+	uint32_t bits;
+
+	memcpy(&bits, &f, sizeof(bits));
+	put_number(l, NINE_F32, bits);
+}
+
 /*
  * The limits of an integer read through range.u: the union holds the same
  * bits for a signed limit, which put_number() takes as its bit pattern.
- * The limits of a float are not shown yet, as floats have no text form yet.
+ * The limits of an f64 are not shown yet, as an f64 has no text form yet.
  */
 static void put_range(struct line *l, const struct nine_field *f)
 {
 	if (!f->range.u.min && !f->range.u.max)
 		return;
-	if (f->elem == NINE_F32 || f->elem == NINE_F64)
+	if (f->elem == NINE_F64)
 		return;
 
 	put_str(l, " range=");
+	if (f->elem == NINE_F32) {
+		put_f32(l, f->range.f.min);
+		put_str(l, "..");
+		put_f32(l, f->range.f.max);
+		return;
+	}
 	put_number(l, f->elem, f->range.u.min);
 	put_str(l, "..");
 	put_number(l, f->elem, f->range.u.max);

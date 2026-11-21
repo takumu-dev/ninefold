@@ -7,9 +7,9 @@
 
 /* The size in bytes of each element type. */
 static const unsigned char elem_sizes[] = {
-	[NINE_I8] = 1,	[NINE_I16] = 2, [NINE_I32] = 4,
-	[NINE_I64] = 8, [NINE_U8] = 1,	[NINE_U16] = 2,
-	[NINE_U32] = 4, [NINE_U64] = 8, [NINE_BOOL] = 1,
+	[NINE_I8] = 1,	[NINE_I16] = 2,	 [NINE_I32] = 4, [NINE_I64] = 8,
+	[NINE_U8] = 1,	[NINE_U16] = 2,	 [NINE_U32] = 4, [NINE_U64] = 8,
+	[NINE_F32] = 4, [NINE_BOOL] = 1,
 };
 
 /* The number of elements of each shape that has a text form. */
@@ -83,12 +83,15 @@ static bool is_integer(enum nine_elem e)
 	return e >= NINE_I8 && e <= NINE_U64;
 }
 
-/* A bool and an enum are scalars, and an integer may be a vector too. */
+/*
+ * A bool and an enum are scalars, and an integer or an f32 may be a vector
+ * too.
+ */
 bool nine_value_has_text(const struct nine_field *f)
 {
 	if (f->elem == NINE_BOOL)
 		return f->shape == NINE_SCALAR && !f->values;
-	if (!is_integer(f->elem))
+	if (!is_integer(f->elem) && f->elem != NINE_F32)
 		return false;
 	if (f->values)
 		return f->shape == NINE_SCALAR;
@@ -136,6 +139,22 @@ static char *format_int(const struct nine_field *f, const void *bin, char *end)
 	return p;
 }
 
+/*
+ * Write the text of the f32 at @bin so that it ends just before @end.
+ * Return: where it starts.
+ */
+static char *format_f32(const void *bin, char *end)
+{
+	char text[NINE_F32_TEXT_MAX];
+	uint32_t bits;
+	size_t n;
+
+	memcpy(&bits, bin, sizeof(bits));
+	n = nine_f32_format(bits, text);
+	memcpy(end - n, text, n);
+	return end - n;
+}
+
 /* The first name of @f listed for the integer at @bin, or NULL for none. */
 static const char *enum_name(const struct nine_field *f, const void *bin)
 {
@@ -179,9 +198,12 @@ ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
 			return put_line(buf, len, name, strlen(name));
 	}
 
-	/* format_int() writes backwards, so the last element comes first. */
+	/* Each element is written backwards, so the last one comes first. */
 	for (i = shape_counts[f->shape]; i-- > 0;) {
-		p = format_int(f, (const char *)bin + i * size, p);
+		if (f->elem == NINE_F32)
+			p = format_f32((const char *)bin + i * size, p);
+		else
+			p = format_int(f, (const char *)bin + i * size, p);
 		if (i)
 			*--p = ' ';
 	}
@@ -295,9 +317,41 @@ static int parse_int(const struct nine_field *f, const char *text, size_t len,
 	return 0;
 }
 
-/* Parse the elements of an integer, with one space between them. */
-static int parse_ints(const struct nine_field *f, const char *text, size_t len,
+/*
+ * Tell whether @v is in the range of @f, an f32: each limit becomes an f32
+ * first. A range of all zeros means no range, and a range refuses a NaN.
+ */
+static bool f32_in_range(const struct nine_field *f, float v)
+{
+	if (!f->range.u.min && !f->range.u.max)
+		return true;
+
+	return v >= (float)f->range.f.min && v <= (float)f->range.f.max;
+}
+
+static int parse_f32(const struct nine_field *f, const char *text, size_t len,
+		     void *bin)
+{
+	float v;
+
+	if (nine_f32_parse(text, len, &v) || !f32_in_range(f, v))
+		return -EINVAL;
+
+	memcpy(bin, &v, sizeof(v));
+	return 0;
+}
+
+static int parse_elem(const struct nine_field *f, const char *text, size_t len,
 		      void *bin)
+{
+	if (f->elem == NINE_F32)
+		return parse_f32(f, text, len, bin);
+	return parse_int(f, text, len, bin);
+}
+
+/* Parse the elements of a number, with one space between them. */
+static int parse_elems(const struct nine_field *f, const char *text, size_t len,
+		       void *bin)
 {
 	size_t n = shape_counts[f->shape], size = elem_sizes[f->elem];
 	const char *space;
@@ -311,7 +365,7 @@ static int parse_ints(const struct nine_field *f, const char *text, size_t len,
 			return -EINVAL;
 
 		elen = space ? (size_t)(space - text) : len;
-		err = parse_int(f, text, elen, (char *)bin + i * size);
+		err = parse_elem(f, text, elen, (char *)bin + i * size);
 		if (err)
 			return err;
 		if (space) {
@@ -332,5 +386,5 @@ int nine_value_parse(const struct nine_field *f, const char *text, size_t len,
 		return parse_bool(text, len, bin);
 	if (f->values)
 		return parse_enum(f, text, len, bin);
-	return parse_ints(f, text, len, bin);
+	return parse_elems(f, text, len, bin);
 }

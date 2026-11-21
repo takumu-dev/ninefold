@@ -1,6 +1,6 @@
-# Style check targets: format, check-format and checkpatch. Each runs a
-# script in this directory, so the file list is gathered when the target
-# runs and a new source file needs no reconfigure.
+# Check targets: format, check-format, checkpatch and check-licences. Each
+# runs a script in this directory, so the file list is gathered when the
+# target runs and a new source file needs no reconfigure.
 
 find_program(CLANG_FORMAT NAMES clang-format-22 clang-format)
 find_package(Perl QUIET)
@@ -34,5 +34,13 @@ add_custom_target(checkpatch
 		-DCHECKPATCH_DIR=${PROJECT_BINARY_DIR}/checkpatch
 		-P ${lint_dir}/checkpatch.cmake
 	COMMENT "Running checkpatch"
+	VERBATIM
+	USES_TERMINAL)
+
+add_custom_target(check-licences
+	COMMAND ${CMAKE_COMMAND}
+		-DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+		-P ${lint_dir}/licences.cmake
+	COMMENT "Checking the licences of the copied files"
 	VERBATIM
 	USES_TERMINAL)

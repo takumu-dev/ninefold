@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Zlib */
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "ninefold.h"
@@ -9,6 +10,12 @@
 #include "listing.h"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+/*
+ * Made at run time. The macro INFINITY is a constant expression that
+ * overflows, and some compilers warn of it.
+ */
+static double pos_inf;
 
 static const struct nine_field one_field[] = {
 	{ .name = "v", .elem = NINE_I32 },
@@ -314,15 +321,44 @@ static void test_empty_unit_and_message(void)
 		   "i32 range=0..100\n");
 }
 
-/* The limits of a float have no text form yet, so they are left out. */
-static void test_float_range_left_out(void)
+/* The limits of an f32 become f32s, so 0.1 shows as the f32 nearest it. */
+static void test_f32_ranges(void)
 {
 	check_line(&(struct nine_field){ .name = "v",
 					 .elem = NINE_F32,
 					 .unit = "m",
+					 .range.f = { 0, 0.1 },
+					 .message = "Pick 0 to 0.1." },
+		   "f32 unit=m range=0..0.1 message=Pick 0 to 0.1.\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F32,
+					 .range.f = { -pos_inf, 5 } },
+		   "f32 range=-inf..5\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F32,
+					 .range.f = { 0, pos_inf } },
+		   "f32 range=0..inf\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F32,
+					 .shape = NINE_VEC3,
+					 .range.f = { -1e10, 1e-7 } },
+		   "vec3 f32 range=-1e10..1e-7\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F32,
+					 .range.f = { -3.4028234663852886e38,
+						      0.000123456789 } },
+		   "f32 range=-3.4028235e38..0.00012345679\n");
+}
+
+/* The limits of an f64 are left out until an f64 has a text form. */
+static void test_f64_range_left_out(void)
+{
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F64,
+					 .unit = "m",
 					 .range.f = { 0, 1 },
 					 .message = "Pick 0 to 1." },
-		   "f32 unit=m message=Pick 0 to 1.\n");
+		   "f64 unit=m message=Pick 0 to 1.\n");
 }
 
 static void test_field_text_that_does_not_fit(void)
@@ -560,6 +596,8 @@ static void test_no_types_without_the_mount(void)
 
 int main(void)
 {
+	pos_inf = strtod("inf", NULL);
+
 	test_lists_each_schema_and_its_fields();
 	test_name_that_does_not_fit();
 	test_same_descriptor_twice_lists_once();
@@ -570,7 +608,8 @@ int main(void)
 	test_enum_values_in_the_element_type();
 	test_items_in_order();
 	test_empty_unit_and_message();
-	test_float_range_left_out();
+	test_f32_ranges();
+	test_f64_range_left_out();
 	test_field_text_that_does_not_fit();
 	test_read_at_an_offset();
 	test_long_line();
