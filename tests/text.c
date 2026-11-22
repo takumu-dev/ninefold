@@ -942,6 +942,349 @@ static void test_f32_vector_range(void)
 	check_refused(&field, 8, "0 nan", 5);
 }
 
+static void test_f64_round_trip(void)
+{
+	CHECK_ROUND_TRIP(NINE_F64, double, "0", 0.0);
+	CHECK_ROUND_TRIP(NINE_F64, double, "0.1", 0.1);
+	CHECK_ROUND_TRIP(NINE_F64, double, "1.5", 1.5);
+	CHECK_ROUND_TRIP(NINE_F64, double, "-2", -2.0);
+	CHECK_ROUND_TRIP(NINE_F64, double, "100", 100.0);
+	CHECK_ROUND_TRIP(NINE_F64, double, "123456789.123", 123456789.123);
+}
+
+#define CHECK_F64(text, bits) CHECK_ROUND_TRIP(NINE_F64, uint64_t, text, bits)
+
+/*
+ * The forms of zero and infinity, the limits of the type, each side of the
+ * bounds of the decimal layout, 1e-4 and 1e9, and exponents of three digits,
+ * as bit patterns.
+ */
+static void test_f64_edge_values(void)
+{
+	CHECK_F64("-0", 0x8000000000000000);
+	CHECK_F64("inf", 0x7ff0000000000000);
+	CHECK_F64("-inf", 0xfff0000000000000);
+	CHECK_F64("5e-324", 0x0000000000000001);
+	CHECK_F64("-5e-324", 0x8000000000000001);
+	CHECK_F64("2.225073858507201e-308", 0x000fffffffffffff);
+	CHECK_F64("2.2250738585072014e-308", 0x0010000000000000);
+	CHECK_F64("1.7976931348623157e308", 0x7fefffffffffffff);
+	CHECK_F64("-1.7976931348623157e308", 0xffefffffffffffff);
+	CHECK_F64("9.999999999999999e-5", 0x3f1a36e2eb1c432c);
+	CHECK_F64("0.0001", 0x3f1a36e2eb1c432d);
+	CHECK_F64("0.00010000000000000002", 0x3f1a36e2eb1c432e);
+	CHECK_F64("1e-5", 0x3ee4f8b588e368f1);
+	CHECK_F64("0.3", 0x3fd3333333333333);
+	CHECK_F64("0.30000000000000004", 0x3fd3333333333334);
+	CHECK_F64("999999999.9999999", 0x41cdcd64ffffffff);
+	CHECK_F64("1e9", 0x41cdcd6500000000);
+	CHECK_F64("1.0000000000000001e9", 0x41cdcd6500000001);
+	CHECK_F64("9.007199254740992e15", 0x4340000000000000);
+	CHECK_F64("1e23", 0x44b52d02c7e14af6);
+	CHECK_F64("1e100", 0x54b249ad2594c37d);
+	CHECK_F64("1e-300", 0x01a56e1fc2f8f359);
+}
+
+/* A xorshift generator of 64 bits, so that each run checks the same values. */
+static uint64_t next_random64(uint64_t *state)
+{
+	*state ^= *state << 13;
+	*state ^= *state >> 7;
+	*state ^= *state << 17;
+	return *state;
+}
+
+static bool f64_is_nan(uint64_t bits)
+{
+	return (bits & 0x7fffffffffffffff) > 0x7ff0000000000000;
+}
+
+/* As for an f32, every NaN reads as nan, which writes one quiet NaN. */
+static void test_f64_random_bit_patterns(void)
+{
+	const struct nine_field field = { .name = "v", .elem = NINE_F64 };
+	const uint64_t quiet_nan = 0x7ff8000000000000;
+	char text[NINE_TEXT_MAX], again[NINE_TEXT_MAX];
+	uint64_t state = 88172645463325252u, bits;
+	ptrdiff_t len;
+	struct fixture f;
+	long i;
+
+	fixture_init(&f, &field, sizeof(bits));
+	for (i = 0; i < 200000; i++) {
+		bits = next_random64(&state);
+		/* One pattern in eight is a NaN, so that NaNs come up often. */
+		if (!(bits & 7))
+			bits |= 0x7ff0000000000001;
+		memcpy(f.r.value, &bits, sizeof(bits));
+		len = nine_read_text(&f.h, text, sizeof(text));
+		CHECK_INT(len, >, 1);
+		CHECK_INT(len, <=, 25);
+		if (f64_is_nan(bits)) {
+			CHECK_MEM(text, "nan\n", 4);
+			bits = quiet_nan;
+		}
+
+		memset(f.r.value, 0, sizeof(bits));
+		CHECK_INT(nine_write_text(&f.h, text, (size_t)len), ==, 0);
+		CHECK_MEM(f.r.value, &bits, sizeof(bits));
+		CHECK_INT(nine_read_text(&f.h, again, sizeof(again)), ==, len);
+		CHECK_MEM(again, text, (size_t)len);
+		f.r.ncalls = 0;
+	}
+	fixture_free(&f);
+}
+
+/* The float forms that a read never gives. */
+static void test_f64_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	 "\n",	  "-",	      "+1",	   "+0.5",    ".5",
+		"-.5",	 "5.",	  "5.e3",     "1E3",	   "1e+3",    "1e",
+		"1e-",	 "1e07",  "1e-0",     "1e--3",	   "1e3.5",   "01",
+		"00.5",	 "-01.5", "1.5.2",    "1..5",	   "1,5",     "--1",
+		"1m",	 "1.5 m", " 1",	      "1 ",	   "\t1",     "1\t",
+		"1\r\n", "1\n\n", "\n1",      "0x10",	   "0x1p3",   "-0x1",
+		"NaN",	 "NAN",	  "-nan",     "+nan",	   "nan\n\n", "Inf",
+		"INF",	 "+inf",  "infinity", "-infinity", "1e100f",  "1.5d",
+		"abc",	 "e3",
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F64 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 8, forms[i], strlen(forms[i]));
+	check_refused(&field, 8, "1.5\0", 4);
+}
+
+/* A write needs no shortest form, and a read then gives the shortest. */
+static void test_f64_longer_forms(void)
+{
+	static const struct {
+		const char *text;
+		uint64_t bits;
+		const char *line;
+	} forms[] = {
+		{ "2.0", 0x4000000000000000, "2\n" },
+		{ "-0.0", 0x8000000000000000, "-0\n" },
+		{ "0e99999", 0x0000000000000000, "0\n" },
+		{ "25e-1", 0x4004000000000000, "2.5\n" },
+		{ "0.1000000000000000055511151231257827021181583404541015625",
+		  0x3fb999999999999a, "0.1\n" },
+		{ "1.7976931348623158e308", 0x7fefffffffffffff,
+		  "1.7976931348623157e308\n" },
+		{ "3e-324", 0x0000000000000001, "5e-324\n" },
+		{ "0.000100000000000000000000000001", 0x3f1a36e2eb1c432d,
+		  "0.0001\n" },
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F64 };
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+	size_t i, n;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++) {
+		fixture_init(&f, &field, 8);
+		CHECK_INT(nine_write_text(&f.h, forms[i].text,
+					  strlen(forms[i].text)),
+			  ==, 0);
+		CHECK_MEM(f.r.value, &forms[i].bits, 8);
+		n = strlen(forms[i].line);
+		CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, n);
+		CHECK_MEM(buf, forms[i].line, n);
+		fixture_free(&f);
+	}
+}
+
+/*
+ * Too large for an f64, or not zero but rounds to zero. 1.7976931348623159e308
+ * is past half way from the largest f64 to 2^1024, and 2.4703282292062327e-324
+ * is just short of half the smallest one.
+ */
+static void test_f64_out_of_range(void)
+{
+	static const char *const forms[] = {
+		"1.7976931348623159e308",
+		"-1.8e308",
+		"1e309",
+		"1e99999999999999999999",
+		"2.4703282292062327e-324",
+		"-1e-330",
+		"1e-99999999999999999999",
+	};
+	const struct nine_field field = { .name = "v", .elem = NINE_F64 };
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(forms); i++)
+		check_refused(&field, 8, forms[i], strlen(forms[i]));
+}
+
+/* An f64 keeps its limits as they are, so the next f64 past 0.1 is out. */
+static void test_f64_limits(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F64,
+					  .range.f = { -1e-300, 0.1 } };
+
+	check_accepted(&field, 8, "0.1");
+	check_accepted(&field, 8, "-1e-300");
+	check_accepted(&field, 8, "-0");
+	check_refused(&field, 8, "0.10000000000000002", 19);
+	check_refused(&field, 8, "-1.0000000000000002e-300", 24);
+	check_refused(&field, 8, "1", 1);
+}
+
+/* A range refuses nan, and an infinity unless a limit is that infinity. */
+static void test_f64_range_and_special_values(void)
+{
+	const struct nine_field finite = { .name = "v",
+					   .elem = NINE_F64,
+					   .range.f = { -1, 1 } };
+	const struct nine_field lower = { .name = "v",
+					  .elem = NINE_F64,
+					  .range.f = { -pos_inf, 0 } };
+	const struct nine_field none = { .name = "v", .elem = NINE_F64 };
+
+	check_refused(&finite, 8, "nan", 3);
+	check_refused(&finite, 8, "inf", 3);
+	check_refused(&finite, 8, "-inf", 4);
+	check_refused(&lower, 8, "nan", 3);
+	check_accepted(&lower, 8, "-inf");
+	check_refused(&lower, 8, "inf", 3);
+	check_accepted(&none, 8, "nan");
+	check_accepted(&none, 8, "inf");
+	check_accepted(&none, 8, "-inf");
+}
+
+static void test_f64_vectors(void)
+{
+	CHECK_VECTORS(NINE_F64, double, 1.5, -0.25, 1e-7, 3e9, "1.5", "-0.25",
+		      "1e-7", "3e9");
+	CHECK_VECTORS(NINE_F64, double, 0.0, -0.0, pos_inf, -pos_inf, "0", "-0",
+		      "inf", "-inf");
+}
+
+/* The range binds each element of a vector, nan in any of them too. */
+static void test_f64_vector_range(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F64,
+					  .shape = NINE_VEC3,
+					  .range.f = { -1, 1 } };
+	const double limits[] = { -1.0, 1.0, 0.5 };
+
+	check_field_round_trip(&field, limits, sizeof(limits), "-1 1 0.5");
+	check_refused(&field, 24, "1.0000000000000002 0 0", 22);
+	check_refused(&field, 24, "0 -1.5 0", 8);
+	check_refused(&field, 24, "0 0 2", 5);
+	check_refused(&field, 24, "nan 0 0", 7);
+	check_refused(&field, 24, "0 0 nan", 7);
+}
+
+#define F64_LONGEST_TEXT "-2.2250738585072014e-308"
+
+/*
+ * The longest numeric line, a vec4 or a quat of numbers with seventeen digits,
+ * a sign and an exponent of three digits, has 100 bytes.
+ */
+static void test_longest_numeric_line(void)
+{
+	static const enum nine_shape shapes[] = { NINE_VEC4, NINE_QUAT };
+	const uint64_t values[] = { 0x8010000000000000, 0x8010000000000000,
+				    0x8010000000000000, 0x8010000000000000 };
+	static const char line[] =
+		F64_LONGEST_TEXT " " F64_LONGEST_TEXT " " F64_LONGEST_TEXT
+				 " " F64_LONGEST_TEXT "\n";
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+	size_t i;
+
+	CHECK_UINT(sizeof(line) - 1, ==, 100);
+	for (i = 0; i < ARRAY_SIZE(shapes); i++) {
+		const struct nine_field field = { .name = "v",
+						  .elem = NINE_F64,
+						  .shape = shapes[i] };
+
+		fixture_init(&f, &field, sizeof(values));
+		memcpy(f.r.value, values, sizeof(values));
+		CHECK_INT(nine_read_text(&f.h, buf, sizeof(line) - 2), ==,
+			  -ERANGE);
+		CHECK_INT(nine_read_text(&f.h, buf, sizeof(line) - 1), ==,
+			  sizeof(line) - 1);
+		CHECK_MEM(buf, line, sizeof(line) - 1);
+		fixture_free(&f);
+	}
+}
+
+/* A quat is four elements in the order x y z w, as a vec4 is. */
+static void test_quat_round_trip(void)
+{
+	const struct nine_field f32 = { .name = "v",
+					.elem = NINE_F32,
+					.shape = NINE_QUAT };
+	const struct nine_field f64 = { .name = "v",
+					.elem = NINE_F64,
+					.shape = NINE_QUAT };
+	const float x32[] = { 0.5f, -0.5f, 1e-7f, 1.0f };
+	const double x64[] = { 0.1, -0.25, 1e-300, 0.9 };
+
+	check_field_round_trip(&f32, x32, sizeof(x32), "0.5 -0.5 1e-7 1");
+	check_field_round_trip(&f64, x64, sizeof(x64), "0.1 -0.25 1e-300 0.9");
+}
+
+/* A quat takes exactly four elements. */
+static void test_quat_refused_forms(void)
+{
+	static const char *const forms[] = {
+		"",	     "1",	 "1 2",		"1 2 3",
+		"1 2 3 4 5", "1 2 3 ",	 " 1 2 3 4",	"1 2 3 4 ",
+		"1  2 3 4",  "1 2 3\t4", "1,2,3,4",	"1 2 3 4m",
+		"1 2 3 1E3", "1 2 3 .5", "1 2 3 4\n\n", "1 2 3\n4",
+	};
+	static const struct {
+		enum nine_elem elem;
+		size_t size;
+	} types[] = { { NINE_F32, 16 }, { NINE_F64, 32 } };
+	size_t i, j;
+
+	for (i = 0; i < ARRAY_SIZE(types); i++) {
+		const struct nine_field field = { .name = "v",
+						  .elem = types[i].elem,
+						  .shape = NINE_QUAT };
+
+		for (j = 0; j < ARRAY_SIZE(forms); j++)
+			check_refused(&field, types[i].size, forms[j],
+				      strlen(forms[j]));
+	}
+}
+
+/* The range binds each element of a quat. */
+static void test_quat_range(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F64,
+					  .shape = NINE_QUAT,
+					  .range.f = { -1, 1 } };
+
+	check_accepted(&field, 32, "-1 1 0 0.5");
+	check_refused(&field, 32, "0 0 0 1.5", 9);
+	check_refused(&field, 32, "-1.5 0 0 0", 10);
+}
+
+/* The size of a quat is the size of its four elements. */
+static void test_quat_of_the_wrong_size_is_eio(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_F64,
+					  .shape = NINE_QUAT };
+	char buf[NINE_TEXT_MAX];
+	struct fixture f;
+
+	fixture_init(&f, &field, 16);
+	CHECK_INT(nine_read_text(&f.h, buf, sizeof(buf)), ==, -EIO);
+	CHECK_INT(nine_write_text(&f.h, "0 0 0 1", 7), ==, -EIO);
+	fixture_free(&f);
+}
+
 /* The file server got exactly the @n calls of @ops, in order. */
 static void check_calls(const struct recorder *r, size_t n,
 			const enum recorder_op *ops)
@@ -1029,6 +1372,18 @@ static void test_bulk_file_has_no_text_form(void)
 
 	fixture_init(&f, &int_field, 4);
 	f.r.st.type.flags = NINE_TYPE_BULK;
+	check_no_text_form(&f);
+}
+
+/* A quat has float elements only, so a quat of integers has no text. */
+static void test_integer_quat_has_no_text_form(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_QUAT };
+	struct fixture f;
+
+	fixture_init(&f, &field, 16);
 	check_no_text_form(&f);
 }
 
@@ -1232,10 +1587,26 @@ int main(void)
 	test_f32_longest_vector_line();
 	test_f32_vector_refused_forms();
 	test_f32_vector_range();
+	test_f64_round_trip();
+	test_f64_edge_values();
+	test_f64_random_bit_patterns();
+	test_f64_refused_forms();
+	test_f64_longer_forms();
+	test_f64_out_of_range();
+	test_f64_limits();
+	test_f64_range_and_special_values();
+	test_f64_vectors();
+	test_f64_vector_range();
+	test_longest_numeric_line();
+	test_quat_round_trip();
+	test_quat_refused_forms();
+	test_quat_range();
+	test_quat_of_the_wrong_size_is_eio();
 	test_ebadf_comes_before_stat();
 	test_stat_error_is_returned_unchanged();
 	test_untyped_file_has_no_text_form();
 	test_bulk_file_has_no_text_form();
+	test_integer_quat_has_no_text_form();
 	test_directory_has_no_text_form();
 	test_untyped_file_works_in_binary();
 	test_eacces_comes_before_size_and_value();
