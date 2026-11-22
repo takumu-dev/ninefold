@@ -63,6 +63,8 @@ To time the tree, run the benchmark, `ninefold_bench` in
 `build/<preset>/bench`, from a release preset. It times batches of 10,000
 reads and writes through handles, paths and bulk files, and compares each
 with a plain C loop over the same data or with `memcpy` of the same bytes.
+It also times the text form of the same values, which it compares with a
+plain C loop that calls the library's own formatter and parser.
 A result over its limit is marked `OVER`. The only argument is the number
 of batches, 51 by default. The timings mean little in other builds.
 

@@ -25,7 +25,17 @@ set(rows
 	"memcpy in" -
 	"bulk read" -
 	"bulk write" -
-	"kernel file" -)
+	"kernel file" -
+	"text baseline read" id
+	"text baseline read" shuffled
+	"text baseline write" id
+	"text baseline write" shuffled
+	"handle text read" id
+	"handle text read" shuffled
+	"handle text write" id
+	"handle text write" shuffled
+	"path text read" id
+	"path text read" shuffled)
 
 execute_process(COMMAND ${PROGRAM} 1
 	RESULT_VARIABLE result

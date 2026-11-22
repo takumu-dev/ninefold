@@ -12,6 +12,9 @@ endif()
 
 add_executable(ninefold_bench bench.c kernel_file.c)
 target_link_libraries(ninefold_bench PRIVATE ninefold_demo)
+# The text baseline calls the library's own formatter and parser, which the
+# public header does not declare.
+target_include_directories(ninefold_bench PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 # One batch of each measurement, so that a crash fails the tests but the
 # timings never do.

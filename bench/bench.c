@@ -18,8 +18,18 @@
  * gets to consume(), which writes to a volatile variable, so that the
  * compiler keeps the work.
  *
+ * The tree has the demo's schemas, and every file of the tree that the
+ * benchmark reads or writes has its type, so the rows of the binary form
+ * measure typed nodes.
+ *
+ * The text rows read and write the text form of the same positions. Their
+ * baseline is a plain C loop over the column too: the step from ID to slot,
+ * then the library's own formatter for a read, or its own parser and range
+ * check for a write, with no handle and no call to the file server.
+ *
  * The exit code is always 0, as the benchmark is not a test. When it cannot
- * set up, or a read gets the wrong values, it says so on stderr.
+ * set up, a read gets the wrong values or a write fails, it says so on
+ * stderr.
  */
 #include <errno.h>
 #include <stdbool.h>
@@ -30,6 +40,7 @@
 #include <time.h>
 
 #include "demo.h"
+#include "internal.h"
 #include "kernel_file.h"
 #include "ninefold.h"
 
@@ -39,16 +50,25 @@
 
 #define POS_SIZE (3 * sizeof(float))
 #define PATH_SIZE 64
+/* Room for the text of a position: three f32, two spaces and a newline. */
+#define TEXT_SIZE (3 * NINE_F32_TEXT_MAX + 3)
 
 /* The orders of the entities, in this order. */
 #define NORDERS 2
 static const char *const order_names[NORDERS] = { "id", "shuffled" };
 
 static volatile float sink;
+static volatile ptrdiff_t text_sink;
 
 static void consume(const float v[3])
 {
 	sink = v[0] + v[1] + v[2];
+}
+
+/* Consume the result @n of a text read into @text. */
+static void consume_text(const char *text, ptrdiff_t n)
+{
+	text_sink = n > 0 ? n + text[0] : n;
 }
 
 /*
@@ -65,6 +85,9 @@ struct order {
 	struct nine_handle alt[NOPS];
 	/* The path of its pos file in /world. */
 	char paths[NOPS][PATH_SIZE];
+	/* The text of its position, and the length of the text. */
+	char texts[NOPS][TEXT_SIZE];
+	size_t text_lens[NOPS];
 };
 
 struct bench {
@@ -75,6 +98,8 @@ struct bench {
 	/* The column of the demo at /world, and its bulk pos file. */
 	struct demo_column col;
 	struct nine_handle bulk;
+	/* The field of pos, the type of every file of the column. */
+	const struct nine_field *field;
 	/* The values the column starts with, in slot order. */
 	float (*start)[3];
 	/* NOPS values, for the batched and bulk reads. */
@@ -163,6 +188,65 @@ static void path_lookup(struct bench *b, const struct order *o)
 	}
 }
 
+static void text_baseline_read(struct bench *b, const struct order *o)
+{
+	float (*pos)[3] = b->col.pos;
+	const uint32_t *slots = b->col.slots;
+	char text[NINE_TEXT_MAX];
+	size_t i;
+
+	for (i = 0; i < NOPS; i++)
+		consume_text(text,
+			     nine_value_format(b->field, pos[slots[o->ids[i]]],
+					       text, sizeof(text)));
+}
+
+static void text_baseline_write(struct bench *b, const struct order *o)
+{
+	float (*pos)[3] = b->col.pos;
+	const uint32_t *slots = b->col.slots;
+	float v[3];
+	size_t i;
+
+	for (i = 0; i < NOPS; i++) {
+		if (!nine_value_parse(b->field, o->texts[i], o->text_lens[i],
+				      v))
+			memcpy(pos[slots[o->ids[i]]], v, POS_SIZE);
+	}
+}
+
+static void handle_text_read(struct bench *b, const struct order *o)
+{
+	char text[NINE_TEXT_MAX];
+	size_t i;
+
+	(void)b;
+	for (i = 0; i < NOPS; i++)
+		consume_text(text,
+			     nine_read_text(&o->hs[i], text, sizeof(text)));
+}
+
+static void handle_text_write(struct bench *b, const struct order *o)
+{
+	size_t i;
+
+	(void)b;
+	for (i = 0; i < NOPS; i++)
+		nine_write_text(&o->hs[i], o->texts[i], o->text_lens[i]);
+}
+
+static void path_text_read(struct bench *b, const struct order *o)
+{
+	char text[NINE_TEXT_MAX];
+	struct nine_handle h;
+	size_t i;
+
+	for (i = 0; i < NOPS; i++) {
+		nine_open(b->ns, o->paths[i], NINE_RDONLY, &h);
+		consume_text(text, nine_read_text(&h, text, sizeof(text)));
+	}
+}
+
 static void memcpy_out(struct bench *b, const struct order *o)
 {
 	(void)o;
@@ -214,6 +298,11 @@ enum {
 	BULK_READ,
 	BULK_WRITE,
 	KERNEL_FILE,
+	TEXT_BASELINE_READ,
+	TEXT_BASELINE_WRITE,
+	HANDLE_TEXT_READ,
+	HANDLE_TEXT_WRITE,
+	PATH_TEXT_READ,
 	NROWS
 };
 
@@ -253,6 +342,16 @@ static const struct row rows[NROWS] = {
 	[BULK_READ] = { "bulk read", bulk_read, false, MEMCPY_OUT, 2 },
 	[BULK_WRITE] = { "bulk write", bulk_write, false, MEMCPY_IN, 2 },
 	[KERNEL_FILE] = { "kernel file", kernel_file, false, BASELINE_READ, 0 },
+	[TEXT_BASELINE_READ] = { "text baseline read", text_baseline_read, true,
+				 TEXT_BASELINE_READ, 0 },
+	[TEXT_BASELINE_WRITE] = { "text baseline write", text_baseline_write,
+				  true, TEXT_BASELINE_WRITE, 0 },
+	[HANDLE_TEXT_READ] = { "handle text read", handle_text_read, true,
+			       TEXT_BASELINE_READ, 2 },
+	[HANDLE_TEXT_WRITE] = { "handle text write", handle_text_write, true,
+				TEXT_BASELINE_WRITE, 2 },
+	[PATH_TEXT_READ] = { "path text read", path_text_read, true,
+			     TEXT_BASELINE_READ, 0 },
 };
 
 static int64_t now_ns(void)
@@ -305,7 +404,7 @@ static void print_header(int nbatches)
 #ifndef NDEBUG
 	printf("This is not a release build, so the times mean little.\n");
 #endif
-	printf("\n%-17s %-9s %10s %8s  %-14s %s\n", "measurement", "order",
+	printf("\n%-19s %-9s %10s %8s  %-19s %s\n", "measurement", "order",
 	       "ns/op", "ratio", "compared with", "limit");
 }
 
@@ -317,7 +416,7 @@ static void print_row(const struct row *row, const char *order, double ns,
 
 	if (row->limit)
 		snprintf(limit, sizeof(limit), "%dx", row->limit);
-	printf("%-17s %-9s %10.2f %8.2f  %-14s %s%s\n", row->name, order, ns,
+	printf("%-19s %-9s %10.2f %8.2f  %-19s %s%s\n", row->name, order, ns,
 	       ratio, rows[row->ref].name, limit,
 	       row->limit && ratio > row->limit ? "  OVER" : "");
 	fflush(stdout);
@@ -332,7 +431,7 @@ static void run_rows(struct bench *b, int64_t *times, int nbatches)
 	for (r = 0; r < NROWS; r++) {
 		row = &rows[r];
 		if (r == KERNEL_FILE && !b->has_kf) {
-			printf("%-17s %-9s %10s\n", row->name, "-",
+			printf("%-19s %-9s %10s\n", row->name, "-",
 			       "skipped: Linux only");
 			continue;
 		}
@@ -352,6 +451,27 @@ static int fail(const char *what, int err)
 {
 	fprintf(stderr, "bench: %s: error %d\n", what, -err);
 	return err;
+}
+
+/*
+ * Check that the file of @h, at @path, has the type @field with @flags.
+ * Return: 0, an error from the stat, or -EINVAL when it has another type.
+ */
+static int check_type(const struct nine_handle *h, const char *path,
+		      const struct nine_field *field, uint32_t flags)
+{
+	struct nine_stat st;
+	int err;
+
+	err = nine_stat(h, &st);
+	if (err)
+		return fail(path, err);
+	if (st.type.field != field || st.type.flags != flags) {
+		fprintf(stderr, "bench: %s does not have the type of %s\n",
+			path, field->name);
+		return -EINVAL;
+	}
+	return 0;
 }
 
 /* The position of the entity @id, in both demo instances. */
@@ -408,6 +528,7 @@ static int fill_order(struct bench *b, struct order *o, bool shuffled)
 	char path[PATH_SIZE];
 	const char *mount;
 	uint32_t i, id;
+	ptrdiff_t n;
 	int err;
 
 	for (i = 0; i < NOPS; i++)
@@ -423,11 +544,22 @@ static int fill_order(struct bench *b, struct order *o, bool shuffled)
 			       &o->hs[i]);
 		if (err)
 			return fail(o->paths[i], err);
+		err = check_type(&o->hs[i], o->paths[i], b->field, 0);
+		if (err)
+			return err;
+
+		n = nine_read_text(&o->hs[i], o->texts[i], TEXT_SIZE);
+		if (n < 0)
+			return fail(o->paths[i], (int)n);
+		o->text_lens[i] = (size_t)n;
 
 		mount = i % 2 ? "/variant" : "/world";
 		err = open_pos(b->ns, mount, id, NINE_RDONLY, path, &o->alt[i]);
 		if (err)
 			return fail(path, err);
+		err = check_type(&o->alt[i], path, b->field, 0);
+		if (err)
+			return err;
 	}
 	return 0;
 }
@@ -435,6 +567,7 @@ static int fill_order(struct bench *b, struct order *o, bool shuffled)
 static int make_tree(struct bench *b)
 {
 	const char *bulk = "/world/components/transform/pos";
+	struct nine_stat st;
 	int err;
 
 	b->t = nine_tree_new();
@@ -449,6 +582,9 @@ static int make_tree(struct bench *b)
 	if (err)
 		return fail("create", err);
 
+	err = demo_add_schemas(b->t);
+	if (err)
+		return fail("schemas", err);
 	err = nine_mount(b->t, "/world", demo_ops(), b->world);
 	if (!err)
 		err = nine_mount(b->t, "/variant", demo_variant_ops(),
@@ -458,8 +594,17 @@ static int make_tree(struct bench *b)
 	b->ns = nine_tree_ns(b->t);
 
 	err = nine_open(b->ns, bulk, NINE_RDWR, &b->bulk);
+	if (!err)
+		err = nine_stat(&b->bulk, &st);
 	if (err)
 		return fail(bulk, err);
+	b->field = st.type.field;
+	if (!b->field || st.type.flags != NINE_TYPE_BULK ||
+	    b->field->elem != NINE_F32 || b->field->shape != NINE_VEC3) {
+		fprintf(stderr, "bench: %s is not typed as a vec3 of f32\n",
+			bulk);
+		return -EINVAL;
+	}
 
 	demo_get_column(b->world, &b->col);
 	return 0;
@@ -523,6 +668,12 @@ static bool misread(const char *what)
 	return false;
 }
 
+static bool write_failed(const char *what)
+{
+	fprintf(stderr, "bench: the %s failed\n", what);
+	return false;
+}
+
 static bool read_matches(const struct nine_handle *h, const float want[3])
 {
 	float v[3];
@@ -531,18 +682,45 @@ static bool read_matches(const struct nine_handle *h, const float want[3])
 	       !memcmp(v, want, POS_SIZE);
 }
 
+/* Tell whether the text read @n, into @text, is the text of entry @i of @o. */
+static bool text_matches(const struct order *o, size_t i, const char *text,
+			 ptrdiff_t n)
+{
+	return n == (ptrdiff_t)o->text_lens[i] &&
+	       !memcmp(text, o->texts[i], o->text_lens[i]);
+}
+
 static bool check_order(struct bench *b, const struct order *o)
 {
+	const float *pos;
+	char text[NINE_TEXT_MAX];
+	float v[3];
+	ptrdiff_t n;
 	size_t i;
 
 	for (i = 0; i < NOPS; i++) {
-		if (memcmp(b->col.pos[b->col.slots[o->ids[i]]], o->vals[i],
-			   POS_SIZE))
+		pos = b->col.pos[b->col.slots[o->ids[i]]];
+		if (memcmp(pos, o->vals[i], POS_SIZE))
 			return misread("baseline read");
 		if (!read_matches(&o->hs[i], o->vals[i]))
 			return misread("handle read");
 		if (!read_matches(&o->alt[i], o->vals[i]))
 			return misread("alternating read");
+
+		n = nine_value_format(b->field, pos, text, sizeof(text));
+		if (!text_matches(o, i, text, n))
+			return misread("text baseline read");
+		n = nine_read_text(&o->hs[i], text, sizeof(text));
+		if (!text_matches(o, i, text, n))
+			return misread("handle text read");
+
+		/* A text write puts back the value it parses. */
+		if (nine_value_parse(b->field, o->texts[i], o->text_lens[i],
+				     v) ||
+		    memcmp(v, o->vals[i], POS_SIZE))
+			return write_failed("text baseline write");
+		if (nine_write_text(&o->hs[i], o->texts[i], o->text_lens[i]))
+			return write_failed("handle text write");
 	}
 
 	memset(b->buf, 0, NOPS * POS_SIZE);
@@ -553,8 +731,9 @@ static bool check_order(struct bench *b, const struct order *o)
 }
 
 /*
- * Check that each read finds the values the entities were made with. The
- * writes write the same values, so this holds after them too.
+ * Check that each read finds the values the entities were made with, and
+ * that a text write of each succeeds. The writes write the same values, so
+ * this holds after them too.
  */
 static bool check_reads(struct bench *b)
 {
