@@ -140,33 +140,40 @@ static void put_values(struct line *l, const struct nine_field *f)
 	}
 }
 
-/* Add the limit @v of an f32, as the f32 it becomes, in its text form. */
-static void put_f32(struct line *l, double v)
+/*
+ * Add the limit @v of a float of type @e, as the float of that type it
+ * becomes, in its text form.
+ */
+static void put_float(struct line *l, enum nine_elem e, double v)
 {
-	float f = (float)v;
-	uint32_t bits;
+	uint32_t bits32;
+	uint64_t bits;
+	float f;
 
-	memcpy(&bits, &f, sizeof(bits));
-	put_number(l, NINE_F32, bits);
+	if (e == NINE_F32) {
+		f = (float)v;
+		memcpy(&bits32, &f, sizeof(bits32));
+		bits = bits32;
+	} else {
+		memcpy(&bits, &v, sizeof(bits));
+	}
+	put_number(l, e, bits);
 }
 
 /*
  * The limits of an integer read through range.u: the union holds the same
  * bits for a signed limit, which put_number() takes as its bit pattern.
- * The limits of an f64 are not shown yet, as an f64 has no text form yet.
  */
 static void put_range(struct line *l, const struct nine_field *f)
 {
 	if (!f->range.u.min && !f->range.u.max)
 		return;
-	if (f->elem == NINE_F64)
-		return;
 
 	put_str(l, " range=");
-	if (f->elem == NINE_F32) {
-		put_f32(l, f->range.f.min);
+	if (f->elem == NINE_F32 || f->elem == NINE_F64) {
+		put_float(l, f->elem, f->range.f.min);
 		put_str(l, "..");
-		put_f32(l, f->range.f.max);
+		put_float(l, f->elem, f->range.f.max);
 		return;
 	}
 	put_number(l, f->elem, f->range.u.min);

@@ -10,6 +10,9 @@
  * define is renamed, so that an app that links its own copy of Ryu or of
  * ffc.h does not clash with ours.
  */
+#define d2s nine_ryu_d2s
+#define d2s_buffered nine_ryu_d2s_buffered
+#define d2s_buffered_n nine_ryu_d2s_buffered_n
 #define f2s nine_ryu_f2s
 #define f2s_buffered nine_ryu_f2s_buffered
 #define f2s_buffered_n nine_ryu_f2s_buffered_n
@@ -42,7 +45,6 @@
 #define ffc_parse_u64 nine_ffc_parse_u64
 #define ffc_parse_u64_simple nine_ffc_parse_u64_simple
 
-/* Ryu's own tables for f32, not the larger ones it shares with f64. */
 /*
  * MSVC gives some warnings from its back end, after the code is compiled,
  * where /external:W0 does not reach them: C4701 and C4703 for a variable
@@ -55,8 +57,14 @@
 #pragma warning(disable : 4701 4702 4703)
 #endif
 
+/* Ryu's own tables for f32, not the larger ones it shares with f64. */
 #define RYU_FLOAT_FULL_TABLE
 #include "ryu/f2s.c"
+
+/* The f32 and the f64 code each define a static to_chars(). */
+#define to_chars d2s_to_chars
+#include "ryu/d2s.c"
+#undef to_chars
 
 #define FFC_IMPL
 #include "ffc.h"
@@ -72,8 +80,12 @@
 #define F32_EXP_MASK 0x7f800000u
 #define F32_QUIET_NAN 0x7fc00000u
 
-/* The most digits that Ryu gives for an f32. */
-#define F32_DIGITS_MAX 9
+#define F64_SIGN 0x8000000000000000u
+#define F64_EXP_MASK 0x7ff0000000000000u
+#define F64_QUIET_NAN 0x7ff8000000000000u
+
+/* The most digits that Ryu gives for a float, which an f64 needs. */
+#define DIGITS_MAX 17
 
 /* Copy the @n bytes at @s to @p. Return: the end of the copy. */
 static char *put_bytes(char *p, const char *s, size_t n)
@@ -89,16 +101,16 @@ static char *put_zeros(char *p, size_t n)
 }
 
 /*
- * Give @digits the shortest digits of @v, which is finite, positive and not
- * zero, with no zero at the end. Ryu writes d.dddEx or dEx, with a minus
- * before a negative x. Set @exp to x: @v is d.ddd times 10 to the @exp.
- * Return: the number of digits.
+ * Give @digits the digits of the @len bytes at @text, which Ryu wrote for a
+ * value that is finite, positive and not zero, with no zero at the end. Ryu
+ * writes d.dddEx or dEx, with a minus before a negative x. Set @exp to x:
+ * the value is d.ddd times 10 to the @exp. Return: the number of digits.
  */
-static size_t shortest(float v, char digits[F32_DIGITS_MAX], int *exp)
+static size_t shortest(const char *text, int len, char digits[DIGITS_MAX],
+		       int *exp)
 {
-	char text[16];
-	int len = f2s_buffered_n(v, text), i = 0;
 	size_t n = 0;
+	int i = 0;
 	bool neg;
 
 	while (text[i] != 'E') {
@@ -152,20 +164,36 @@ static char *put_exponent(char *p, const char *digits, size_t n, int exp)
 		*p++ = '-';
 		exp = -exp;
 	}
+	if (exp >= 100)
+		*p++ = (char)('0' + exp / 100);
 	if (exp >= 10)
-		*p++ = (char)('0' + exp / 10);
+		*p++ = (char)('0' + exp / 10 % 10);
 	*p++ = (char)('0' + exp % 10);
 	return p;
 }
 
+/*
+ * Write the value for which Ryu wrote the @len bytes at @text in the layout
+ * of a read: a decimal number from 1e-4 up to 1e9, as the shortest digits
+ * give it, and a number with an exponent otherwise.
+ */
+static char *put_shortest(char *p, const char *text, int len)
+{
+	char digits[DIGITS_MAX];
+	size_t n;
+	int exp;
+
+	n = shortest(text, len, digits, &exp);
+	if (exp >= -4 && exp < 9)
+		return put_decimal(p, digits, n, exp);
+	return put_exponent(p, digits, n, exp);
+}
+
 size_t nine_f32_format(uint32_t bits, char *buf)
 {
-	char digits[F32_DIGITS_MAX];
 	uint32_t mag = bits & ~F32_SIGN;
-	char *p = buf;
-	size_t n;
+	char text[16], *p = buf;
 	float v;
-	int exp;
 
 	if (mag > F32_EXP_MASK)
 		return (size_t)(put_bytes(p, "nan", 3) - buf);
@@ -177,11 +205,27 @@ size_t nine_f32_format(uint32_t bits, char *buf)
 		return (size_t)(put_bytes(p, "0", 1) - buf);
 
 	memcpy(&v, &mag, sizeof(v));
-	n = shortest(v, digits, &exp);
-	if (exp >= -4 && exp < 9)
-		p = put_decimal(p, digits, n, exp);
-	else
-		p = put_exponent(p, digits, n, exp);
+	p = put_shortest(p, text, f2s_buffered_n(v, text));
+	return (size_t)(p - buf);
+}
+
+size_t nine_f64_format(uint64_t bits, char *buf)
+{
+	uint64_t mag = bits & ~F64_SIGN;
+	char text[25], *p = buf;
+	double v;
+
+	if (mag > F64_EXP_MASK)
+		return (size_t)(put_bytes(p, "nan", 3) - buf);
+	if (bits & F64_SIGN)
+		*p++ = '-';
+	if (mag == F64_EXP_MASK)
+		return (size_t)(put_bytes(p, "inf", 3) - buf);
+	if (!mag)
+		return (size_t)(put_bytes(p, "0", 1) - buf);
+
+	memcpy(&v, &mag, sizeof(v));
+	p = put_shortest(p, text, d2s_buffered_n(v, text));
 	return (size_t)(p - buf);
 }
 
@@ -241,13 +285,19 @@ static bool text_is(const char *text, size_t len, const char *s)
 	return strlen(s) == len && !memcmp(text, s, len);
 }
 
+/* Tell whether the @len bytes at @text are a word: nan, inf or -inf. */
+static bool is_word(const char *text, size_t len)
+{
+	return text_is(text, len, "nan") || text_is(text, len, "inf") ||
+	       text_is(text, len, "-inf");
+}
+
 int nine_f32_parse(const char *text, size_t len, float *v)
 {
 	uint32_t bits;
 	ffc_result r;
 
-	if (text_is(text, len, "nan") || text_is(text, len, "inf") ||
-	    text_is(text, len, "-inf")) {
+	if (is_word(text, len)) {
 		bits = text[0] == 'n' ? F32_QUIET_NAN : F32_EXP_MASK;
 		if (text[0] == '-')
 			bits |= F32_SIGN;
@@ -259,6 +309,28 @@ int nine_f32_parse(const char *text, size_t len, float *v)
 
 	/* Out of range: too large for an f32, or not zero but rounds to it. */
 	r = ffc_parse_float(len, text, v);
+	if (r.outcome != FFC_OUTCOME_OK || r.ptr != text + len)
+		return -EINVAL;
+	return 0;
+}
+
+int nine_f64_parse(const char *text, size_t len, double *v)
+{
+	uint64_t bits;
+	ffc_result r;
+
+	if (is_word(text, len)) {
+		bits = text[0] == 'n' ? F64_QUIET_NAN : F64_EXP_MASK;
+		if (text[0] == '-')
+			bits |= F64_SIGN;
+		memcpy(v, &bits, sizeof(bits));
+		return 0;
+	}
+	if (!is_number(text, len))
+		return -EINVAL;
+
+	/* Out of range: too large for an f64, or not zero but rounds to it. */
+	r = ffc_parse_double(len, text, v);
 	if (r.outcome != FFC_OUTCOME_OK || r.ptr != text + len)
 		return -EINVAL;
 	return 0;

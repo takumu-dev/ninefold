@@ -90,4 +90,13 @@ size_t nine_f32_format(uint32_t bits, char *buf);
  */
 int nine_f32_parse(const char *text, size_t len, float *v);
 
+/* The longest text of an f64, such as -2.2250738585072014e-308. */
+#define NINE_F64_TEXT_MAX 24
+
+/* As nine_f32_format(), for an f64 and NINE_F64_TEXT_MAX bytes. */
+size_t nine_f64_format(uint64_t bits, char *buf);
+
+/* As nine_f32_parse(), for an f64. */
+int nine_f64_parse(const char *text, size_t len, double *v);
+
 #endif /* NINEFOLD_INTERNAL_H */

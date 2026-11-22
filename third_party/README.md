@@ -7,7 +7,7 @@ Ninefold needs no notice for them.
 
 | Directory | Project | Upstream | Commit | Files |
 |---|---|---|---|---|
-| `ryu/` | Ryu, by Ulf Adams | <https://github.com/ulfjack/ryu> | `4c0618b0e44f7ef027ebae05d2cc7812048f7c8f` | `LICENSE-Boost`, and from `ryu/`: `common.h`, `digit_table.h`, `f2s.c`, `f2s_full_table.h`, `f2s_intrinsics.h`, `ryu.h` |
+| `ryu/` | Ryu, by Ulf Adams | <https://github.com/ulfjack/ryu> | `4c0618b0e44f7ef027ebae05d2cc7812048f7c8f` | `LICENSE-Boost`, and from `ryu/`: `common.h`, `d2s.c`, `d2s_full_table.h`, `d2s_intrinsics.h`, `digit_table.h`, `f2s.c`, `f2s_full_table.h`, `f2s_intrinsics.h`, `ryu.h` |
 | `ffc/` | ffc.h, a C port of fast_float | <https://github.com/kolemannix/ffc.h> | `7e85c6d11a0289d5eead7c1404de8203c52f8cf8` | `ffc.h`, `LICENSE-BOOST` |
 
 Ryu and ffc.h each offer more than one licence. Ninefold takes them under
