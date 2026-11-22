@@ -351,15 +351,35 @@ static void test_f32_ranges(void)
 		   "f32 range=-3.4028235e38..0.00012345679\n");
 }
 
-/* The limits of an f64 are left out until an f64 has a text form. */
-static void test_f64_range_left_out(void)
+/* The limits of an f64 show as they are, with the shortest digits. */
+static void test_f64_ranges(void)
 {
 	check_line(&(struct nine_field){ .name = "v",
 					 .elem = NINE_F64,
 					 .unit = "m",
-					 .range.f = { 0, 1 },
-					 .message = "Pick 0 to 1." },
-		   "f64 unit=m message=Pick 0 to 1.\n");
+					 .range.f = { 0, 0.1 },
+					 .message = "Pick 0 to 0.1." },
+		   "f64 unit=m range=0..0.1 message=Pick 0 to 0.1.\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F64,
+					 .range.f = { -pos_inf, 5 } },
+		   "f64 range=-inf..5\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F64,
+					 .shape = NINE_QUAT,
+					 .range.f = { -1, 1 } },
+		   "quat f64 range=-1..1\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F64,
+					 .shape = NINE_VEC4,
+					 .range.f = { -1.7976931348623157e308,
+						      5e-324 } },
+		   "vec4 f64 range=-1.7976931348623157e308..5e-324\n");
+	check_line(&(struct nine_field){ .name = "v",
+					 .elem = NINE_F64,
+					 .range.f = { 0.0001,
+						      999999999.9999999 } },
+		   "f64 range=0.0001..999999999.9999999\n");
 }
 
 static void test_field_text_that_does_not_fit(void)
@@ -610,7 +630,7 @@ int main(void)
 	test_items_in_order();
 	test_empty_unit_and_message();
 	test_f32_ranges();
-	test_f64_range_left_out();
+	test_f64_ranges();
 	test_field_text_that_does_not_fit();
 	test_read_at_an_offset();
 	test_long_line();

@@ -7,17 +7,15 @@
 
 /* The size in bytes of each element type. */
 static const unsigned char elem_sizes[] = {
-	[NINE_I8] = 1,	[NINE_I16] = 2,	 [NINE_I32] = 4, [NINE_I64] = 8,
-	[NINE_U8] = 1,	[NINE_U16] = 2,	 [NINE_U32] = 4, [NINE_U64] = 8,
-	[NINE_F32] = 4, [NINE_BOOL] = 1,
+	[NINE_I8] = 1,	[NINE_I16] = 2, [NINE_I32] = 4,	 [NINE_I64] = 8,
+	[NINE_U8] = 1,	[NINE_U16] = 2, [NINE_U32] = 4,	 [NINE_U64] = 8,
+	[NINE_F32] = 4, [NINE_F64] = 8, [NINE_BOOL] = 1,
 };
 
 /* The number of elements of each shape that has a text form. */
 static const unsigned char shape_counts[] = {
-	[NINE_SCALAR] = 1,
-	[NINE_VEC2] = 2,
-	[NINE_VEC3] = 3,
-	[NINE_VEC4] = 4,
+	[NINE_SCALAR] = 1, [NINE_VEC2] = 2, [NINE_VEC3] = 3,
+	[NINE_VEC4] = 4,   [NINE_QUAT] = 4,
 };
 
 static bool is_signed(const struct nine_field *f)
@@ -83,18 +81,25 @@ static bool is_integer(enum nine_elem e)
 	return e >= NINE_I8 && e <= NINE_U64;
 }
 
+static bool is_float(enum nine_elem e)
+{
+	return e == NINE_F32 || e == NINE_F64;
+}
+
 /*
- * A bool and an enum are scalars, and an integer or an f32 may be a vector
- * too.
+ * A bool and an enum are scalars, any number may be a vector too, and only
+ * a float may be a quat.
  */
 bool nine_value_has_text(const struct nine_field *f)
 {
 	if (f->elem == NINE_BOOL)
 		return f->shape == NINE_SCALAR && !f->values;
-	if (!is_integer(f->elem) && f->elem != NINE_F32)
+	if (!is_integer(f->elem) && !is_float(f->elem))
 		return false;
 	if (f->values)
 		return f->shape == NINE_SCALAR;
+	if (f->shape == NINE_QUAT)
+		return is_float(f->elem);
 
 	return f->shape == NINE_SCALAR || f->shape == NINE_VEC2 ||
 	       f->shape == NINE_VEC3 || f->shape == NINE_VEC4;
@@ -140,17 +145,24 @@ static char *format_int(const struct nine_field *f, const void *bin, char *end)
 }
 
 /*
- * Write the text of the f32 at @bin so that it ends just before @end.
+ * Write the text of the float at @bin so that it ends just before @end.
  * Return: where it starts.
  */
-static char *format_f32(const void *bin, char *end)
+static char *format_float(const struct nine_field *f, const void *bin,
+			  char *end)
 {
-	char text[NINE_F32_TEXT_MAX];
-	uint32_t bits;
+	char text[NINE_F64_TEXT_MAX];
+	uint32_t bits32;
+	uint64_t bits64;
 	size_t n;
 
-	memcpy(&bits, bin, sizeof(bits));
-	n = nine_f32_format(bits, text);
+	if (f->elem == NINE_F32) {
+		memcpy(&bits32, bin, sizeof(bits32));
+		n = nine_f32_format(bits32, text);
+	} else {
+		memcpy(&bits64, bin, sizeof(bits64));
+		n = nine_f64_format(bits64, text);
+	}
 	memcpy(end - n, text, n);
 	return end - n;
 }
@@ -180,7 +192,8 @@ static const char *enum_name(const struct nine_field *f, const void *bin)
 ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
 			    char *buf, size_t len)
 {
-	char text[4 * sizeof("-9223372036854775808")];
+	/* Four of the longest element, an f64, with a space after each. */
+	char text[4 * (NINE_F64_TEXT_MAX + 1)];
 	char *end = text + sizeof(text);
 	size_t size = elem_sizes[f->elem];
 	const char *name;
@@ -200,8 +213,8 @@ ptrdiff_t nine_value_format(const struct nine_field *f, const void *bin,
 
 	/* Each element is written backwards, so the last one comes first. */
 	for (i = shape_counts[f->shape]; i-- > 0;) {
-		if (f->elem == NINE_F32)
-			p = format_f32((const char *)bin + i * size, p);
+		if (is_float(f->elem))
+			p = format_float(f, (const char *)bin + i * size, p);
 		else
 			p = format_int(f, (const char *)bin + i * size, p);
 		if (i)
@@ -341,11 +354,37 @@ static int parse_f32(const struct nine_field *f, const char *text, size_t len,
 	return 0;
 }
 
+/*
+ * Tell whether @v is in the range of @f, an f64, whose limits are already
+ * f64s. A range of all zeros means no range, and a range refuses a NaN.
+ */
+static bool f64_in_range(const struct nine_field *f, double v)
+{
+	if (!f->range.u.min && !f->range.u.max)
+		return true;
+
+	return v >= f->range.f.min && v <= f->range.f.max;
+}
+
+static int parse_f64(const struct nine_field *f, const char *text, size_t len,
+		     void *bin)
+{
+	double v;
+
+	if (nine_f64_parse(text, len, &v) || !f64_in_range(f, v))
+		return -EINVAL;
+
+	memcpy(bin, &v, sizeof(v));
+	return 0;
+}
+
 static int parse_elem(const struct nine_field *f, const char *text, size_t len,
 		      void *bin)
 {
 	if (f->elem == NINE_F32)
 		return parse_f32(f, text, len, bin);
+	if (f->elem == NINE_F64)
+		return parse_f64(f, text, len, bin);
 	return parse_int(f, text, len, bin);
 }
 
