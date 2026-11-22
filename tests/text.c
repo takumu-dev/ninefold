@@ -1375,6 +1375,18 @@ static void test_bulk_file_has_no_text_form(void)
 	check_no_text_form(&f);
 }
 
+/* A quat has float elements only, so a quat of integers has no text. */
+static void test_integer_quat_has_no_text_form(void)
+{
+	const struct nine_field field = { .name = "v",
+					  .elem = NINE_I32,
+					  .shape = NINE_QUAT };
+	struct fixture f;
+
+	fixture_init(&f, &field, 16);
+	check_no_text_form(&f);
+}
+
 static void test_directory_has_no_text_form(void)
 {
 	struct fixture f;
@@ -1594,6 +1606,7 @@ int main(void)
 	test_stat_error_is_returned_unchanged();
 	test_untyped_file_has_no_text_form();
 	test_bulk_file_has_no_text_form();
+	test_integer_quat_has_no_text_form();
 	test_directory_has_no_text_form();
 	test_untyped_file_works_in_binary();
 	test_eacces_comes_before_size_and_value();

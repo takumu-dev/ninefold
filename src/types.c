@@ -147,17 +147,17 @@ static void put_values(struct line *l, const struct nine_field *f)
 static void put_float(struct line *l, enum nine_elem e, double v)
 {
 	uint32_t bits32;
-	uint64_t bits;
+	uint64_t bits64;
 	float f;
 
 	if (e == NINE_F32) {
 		f = (float)v;
 		memcpy(&bits32, &f, sizeof(bits32));
-		bits = bits32;
+		bits64 = bits32;
 	} else {
-		memcpy(&bits, &v, sizeof(bits));
+		memcpy(&bits64, &v, sizeof(bits64));
 	}
-	put_number(l, e, bits);
+	put_number(l, e, bits64);
 }
 
 /*

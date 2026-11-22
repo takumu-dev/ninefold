@@ -93,10 +93,19 @@ int nine_f32_parse(const char *text, size_t len, float *v);
 /* The longest text of an f64, such as -2.2250738585072014e-308. */
 #define NINE_F64_TEXT_MAX 24
 
-/* As nine_f32_format(), for an f64 and NINE_F64_TEXT_MAX bytes. */
+/*
+ * nine_f64_format() - Write the text of the f64 whose bit pattern is @bits
+ * to @buf, which has room for NINE_F64_TEXT_MAX bytes, with no newline.
+ * Return: the number of bytes.
+ */
 size_t nine_f64_format(uint64_t bits, char *buf);
 
-/* As nine_f32_parse(), for an f64. */
+/*
+ * nine_f64_parse() - Parse the @len bytes at @text, a whole number with no
+ * newline, into @v. A NaN becomes one quiet NaN.
+ * Return: 0, or -EINVAL for bad syntax, a value too large for an f64, or a
+ * value that is not zero but becomes zero.
+ */
 int nine_f64_parse(const char *text, size_t len, double *v);
 
 #endif /* NINEFOLD_INTERNAL_H */

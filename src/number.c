@@ -87,6 +87,10 @@
 /* The most digits that Ryu gives for a float, which an f64 needs. */
 #define DIGITS_MAX 17
 
+/* The longest text of Ryu for an f32 and an f64, as -1.17549435E-38. */
+#define RYU_F32_TEXT_MAX 15
+#define RYU_F64_TEXT_MAX 24
+
 /* Copy the @n bytes at @s to @p. Return: the end of the copy. */
 static char *put_bytes(char *p, const char *s, size_t n)
 {
@@ -175,7 +179,7 @@ static char *put_exponent(char *p, const char *digits, size_t n, int exp)
 /*
  * Write the value for which Ryu wrote the @len bytes at @text in the layout
  * of a read: a decimal number from 1e-4 up to 1e9, as the shortest digits
- * give it, and a number with an exponent otherwise.
+ * give it, and a number with an exponent otherwise. Return: the end.
  */
 static char *put_shortest(char *p, const char *text, int len)
 {
@@ -192,7 +196,7 @@ static char *put_shortest(char *p, const char *text, int len)
 size_t nine_f32_format(uint32_t bits, char *buf)
 {
 	uint32_t mag = bits & ~F32_SIGN;
-	char text[16], *p = buf;
+	char text[RYU_F32_TEXT_MAX], *p = buf;
 	float v;
 
 	if (mag > F32_EXP_MASK)
@@ -212,7 +216,7 @@ size_t nine_f32_format(uint32_t bits, char *buf)
 size_t nine_f64_format(uint64_t bits, char *buf)
 {
 	uint64_t mag = bits & ~F64_SIGN;
-	char text[25], *p = buf;
+	char text[RYU_F64_TEXT_MAX], *p = buf;
 	double v;
 
 	if (mag > F64_EXP_MASK)
